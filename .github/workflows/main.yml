@@ -38,8 +38,14 @@ jobs:
 
       - name: Verify KVM
         run: |
-          kvm-ok || echo "KVM check completed"
-          ls -la /dev/kvm 2>/dev/null || echo "KVM device not found"
+          echo "=== Checking KVM Setup ==="
+          ls -la /dev/kvm 2>/dev/null || echo "⚠️  KVM device not found"
+          kvm-ok 2>/dev/null || echo "KVM check not available (but /dev/kvm exists)"
+          echo ""
+          echo "=== System Info ==="
+          nproc
+          free -h
+          df -h /
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v2
@@ -50,48 +56,112 @@ jobs:
 
       - name: Install System Image
         run: |
+          echo "Installing Android 11 system image..."
           sdkmanager "system-images;android-30;google_apis;x86_64"
 
       - name: Create AVD
         run: |
+          echo "Creating AVD with 16GB RAM and 65GB storage..."
           echo no | avdmanager create avd --force --name ${{ env.AVD_NAME }} --package "system-images;android-30;google_apis;x86_64" --device "pixel" --sdcard 8192M
+          
           AVD_DIR="$HOME/.android/avd/${{ env.AVD_NAME }}.avd"
           mkdir -p $AVD_DIR
+          
           echo "hw.ramSize=16384" >> $AVD_DIR/config.ini
           echo "disk.dataPartition.size=65536m" >> $AVD_DIR/config.ini
           echo "hw.gpu.mode=auto" >> $AVD_DIR/config.ini
           echo "hw.accelerometer=yes" >> $AVD_DIR/config.ini
           echo "hw.gps=yes" >> $AVD_DIR/config.ini
+          
+          echo "=== AVD Config ==="
+          cat $AVD_DIR/config.ini
 
       - name: Start Emulator with KVM
         run: |
+          export PATH=$ANDROID_HOME/platform-tools:$PATH
+          
+          echo "Starting Android 11 emulator with KVM acceleration..."
           nohup emulator -avd ${{ env.AVD_NAME }} \
             -no-window \
             -no-audio \
             -no-snapshot \
             -partition-size 65536 \
             -accel on \
+            -verbose \
             > emulator.log 2>&1 &
           
-          echo "Waiting for emulator to boot with KVM..."
-          for i in {1..120}; do
-            if adb devices | grep -q "device$"; then
-              echo "✅ Emulator booted successfully!"
+          EMULATOR_PID=$!
+          echo "Emulator PID: $EMULATOR_PID"
+          sleep 15
+          
+          # Kill and restart adb daemon
+          echo "Restarting ADB daemon..."
+          adb kill-server 2>/dev/null || true
+          sleep 2
+          adb start-server
+          sleep 5
+          
+          # Wait for emulator to be detected
+          echo "Waiting for emulator to be detected by ADB..."
+          BOOT_TIMEOUT=180
+          DETECTED=0
+          
+          for i in $(seq 1 $BOOT_TIMEOUT); do
+            DEVICES=$(adb devices 2>&1)
+            
+            if echo "$DEVICES" | grep -q "device$"; then
+              echo "✅ Emulator detected after $i seconds!"
+              DETECTED=1
               break
             fi
-            echo "Progress: $i/120 seconds..."
-            sleep 2
+            
+            # Check if emulator process is still running
+            if ! kill -0 $EMULATOR_PID 2>/dev/null; then
+              echo "❌ Emulator process crashed at attempt $i"
+              echo ""
+              echo "=== Last 30 lines of emulator log ==="
+              tail -30 emulator.log
+              exit 1
+            fi
+            
+            # Print progress every 30 seconds
+            if [ $((i % 30)) -eq 0 ]; then
+              echo "Still waiting... ($i/$BOOT_TIMEOUT seconds)"
+              echo "$DEVICES"
+            fi
+            
+            sleep 1
           done
+          
+          if [ $DETECTED -eq 0 ]; then
+            echo "❌ Emulator not detected after $BOOT_TIMEOUT seconds"
+            echo ""
+            echo "=== Emulator Process Status ==="
+            ps aux | grep -i emulator | grep -v grep || echo "Emulator not running"
+            echo ""
+            echo "=== ADB Devices ==="
+            adb devices -l
+            echo ""
+            echo "=== Last 50 lines of Emulator Log ==="
+            tail -50 emulator.log
+            exit 1
+          fi
 
       - name: Enable ADB TCP on Port 5555
         run: |
+          echo "=== ADB Devices ==="
           adb devices
+          echo ""
+          echo "Enabling ADB over TCP on port 5555..."
           adb tcpip 5555
           sleep 5
+          
+          echo "=== ADB Devices (TCP Mode) ==="
           adb devices
 
       - name: Setup frpc Configuration
         run: |
+          echo "Creating frpc configuration..."
           cat > frpc.ini <<'EOF'
           [common]
           server_addr = 159.195.6.61
@@ -105,40 +175,61 @@ jobs:
           local_port = 5555
           remote_port = 5555
           EOF
+          
+          echo "=== frpc Config ==="
+          cat frpc.ini
 
       - name: Download and Start frpc
         run: |
+          echo "Downloading frpc v0.58.1..."
           wget -q https://github.com/fatedier/frp/releases/download/v0.58.1/frp_0.58.1_linux_amd64.tar.gz
           tar -xzf frp_0.58.1_linux_amd64.tar.gz
+          
+          echo "Starting frpc..."
           nohup ./frp_0.58.1_linux_amd64/frpc -c frpc.ini > frpc.log 2>&1 &
           sleep 10
           
           echo "=== frpc Status ==="
-          cat frpc.log || echo "frpc started"
+          cat frpc.log || echo "frpc log not yet available"
 
       - name: Verify All Connections
         run: |
-          echo "=== ADB Devices ==="
+          echo "========================================="
+          echo "=== Verification Report ==="
+          echo "========================================="
+          
+          echo ""
+          echo "📱 ADB Devices:"
           adb devices
+          
           echo ""
-          echo "=== Port 5555 Status ==="
-          netstat -tuln | grep 5555 || echo "Checking..."
+          echo "🔌 Listening Ports:"
+          netstat -tuln | grep -E '5555|7000' || echo "Ports not yet showing"
+          
           echo ""
-          echo "=== Emulator Log (last 10 lines) ==="
-          tail -10 emulator.log
+          echo "🖥️  Emulator Process:"
+          ps aux | grep -i emulator | grep -v grep | awk '{print $2, $11, $12}' || echo "Checking..."
+          
           echo ""
-          echo "=== frpc Log ==="
+          echo "📝 Emulator Log (last 15 lines):"
+          tail -15 emulator.log
+          
+          echo ""
+          echo "🌐 frpc Connection Log:"
           cat frpc.log
 
       - name: System Resources
         run: |
-          echo "=== CPU Cores ==="
-          nproc
+          echo "========================================="
+          echo "=== System Resources ==="
+          echo "========================================="
           echo ""
-          echo "=== Memory ==="
+          echo "CPU Cores: $(nproc)"
+          echo ""
+          echo "Memory:"
           free -h
           echo ""
-          echo "=== Disk Space ==="
+          echo "Disk Space:"
           df -h /
 
       - name: Keep Job Running
@@ -148,14 +239,25 @@ jobs:
           MINUTES=$(( ${{ env.RUNTIME_MINUTES }} % 60 ))
           
           echo "========================================="
-          echo "✅ Android 11 Emulator Running"
-          echo "✅ 16 GB RAM | 65 GB Storage"
-          echo "✅ ADB TCP on port 5555"
-          echo "✅ frpc connected to 159.195.6.61:7000"
+          echo "✅ Android 11 Emulator Ready"
           echo "========================================="
           echo ""
-          echo "📱 Connect from your phone:"
-          echo "   adb connect 159.195.6.61:5555"
+          echo "📊 Configuration:"
+          echo "   • OS: Android 11 (API 30)"
+          echo "   • RAM: 16 GB"
+          echo "   • Storage: 65 GB"
+          echo "   • Acceleration: KVM + x86_64"
           echo ""
-          echo "⏱️  Keeping job alive for $HOURS hours and $MINUTES minutes..."
+          echo "🔌 Connectivity:"
+          echo "   • ADB TCP: port 5555 (local)"
+          echo "   • FRP Server: 159.195.6.61:7000"
+          echo "   • Remote ADB: 159.195.6.61:5555"
+          echo ""
+          echo "📱 To connect from your phone:"
+          echo "   $ adb connect 159.195.6.61:5555"
+          echo ""
+          echo "⏱️  Runtime: $HOURS hours and $MINUTES minutes"
+          echo "========================================="
+          echo ""
+          echo "Keeping job alive..."
           sleep $RUNTIME_SECONDS
