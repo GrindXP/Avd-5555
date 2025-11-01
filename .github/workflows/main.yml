@@ -39,8 +39,8 @@ jobs:
       - name: Verify KVM
         run: |
           echo "=== Checking KVM Setup ==="
-          ls -la /dev/kvm 2>/dev/null || echo "⚠️  KVM device not found"
-          kvm-ok 2>/dev/null || echo "KVM check not available (but /dev/kvm exists)"
+          ls -la /dev/kvm 2>/dev/null || echo "KVM device not found"
+          kvm-ok 2>/dev/null || echo "KVM check not available"
           echo ""
           echo "=== System Info ==="
           nproc
@@ -61,53 +61,38 @@ jobs:
           export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH
           
           echo "Creating base AVD..."
-          # Accept all prompts for SD card, etc.
-          echo y | echo no | avdmanager create avd --force \
+          echo no | avdmanager create avd --force \
             --name "${{ env.AVD_NAME }}" \
             --package "system-images;android-30;google_apis;x86_64" \
             --device "pixel"
           
-          # Wait for files to generate
           sleep 5
           
           AVD_DIR="$HOME/.android/avd/${{ env.AVD_NAME }}.avd"
           AVD_INI_DIR="$HOME/.android/avd"
           
-          # Create the AVD ini file if missing
           if [ ! -f "$AVD_INI_DIR/${{ env.AVD_NAME }}.ini" ]; then
-            cat > "$AVD_INI_DIR/${{ env.AVD_NAME }}.ini" << EOF
+            cat > "$AVD_INI_DIR/${{ env.AVD_NAME }}.ini" << 'INIEOF'
 avd.ini.path=$AVD_DIR
 avd.ini.displayname=${{ env.AVD_NAME }}
-EOF
+INIEOF
           fi
           
-          # Ensure base config.ini exists and append/modify settings
           if [ ! -f "$AVD_DIR/config.ini" ]; then
             touch "$AVD_DIR/config.ini"
           fi
           
-          # Set high RAM (16GB = 16384MB)
           echo "hw.ramSize=16384" >> "$AVD_DIR/config.ini"
-          
-          # Set large internal storage (65GB)
           echo "disk.dataPartition.size=65536m" >> "$AVD_DIR/config.ini"
-          
-          # Enable GPU acceleration
           echo "hw.gpu.mode=auto" >> "$AVD_DIR/config.ini"
           echo "hw.gpu.enabled=yes" >> "$AVD_DIR/config.ini"
-          
-          # Enable features
           echo "hw.accelerometer=yes" >> "$AVD_DIR/config.ini"
           echo "hw.gps=yes" >> "$AVD_DIR/config.ini"
           echo "hw.battery=yes" >> "$AVD_DIR/config.ini"
           echo "hw.audioInput=yes" >> "$AVD_DIR/config.ini"
           echo "hw.audioOutput=yes" >> "$AVD_DIR/config.ini"
-          
-          # Set SD card size if needed
           echo "hw.sdCard=yes" >> "$AVD_DIR/config.ini"
           echo "hw.sdCard.size=8192M" >> "$AVD_DIR/config.ini"
-          
-          # Optimize for CI
           echo "hw.keyboard=yes" >> "$AVD_DIR/config.ini"
           echo "hw.mainKeys=no" >> "$AVD_DIR/config.ini"
           echo "hw.trackBall=no" >> "$AVD_DIR/config.ini"
@@ -123,9 +108,6 @@ EOF
           echo ""
           echo "=== Complete AVD Config ==="
           cat "$AVD_DIR/config.ini"
-          echo ""
-          echo "=== AVD Ini File ==="
-          cat "$AVD_INI_DIR/${{ env.AVD_NAME }}.ini"
 
       - name: Start Emulator with KVM
         run: |
@@ -134,7 +116,7 @@ EOF
           echo "=== Pre-Start Check ==="
           emulator -list-avds
           
-          echo "Starting Android 11 emulator with KVM acceleration..."
+          echo "Starting Android 11 emulator..."
           nohup emulator -avd ${{ env.AVD_NAME }} \
             -no-window \
             -no-audio \
@@ -148,38 +130,33 @@ EOF
           echo "Emulator PID: $EMULATOR_PID"
           sleep 15
           
-          # Restart ADB daemon
-          echo "Restarting ADB daemon..."
           adb kill-server 2>/dev/null || true
           sleep 2
           adb start-server
           sleep 5
           
-          # Wait for emulator detection
-          echo "Waiting for emulator to be detected by ADB..."
+          echo "Waiting for emulator detection..."
           BOOT_TIMEOUT=180
           DETECTED=0
           
           for i in $(seq 1 $BOOT_TIMEOUT); do
             DEVICES=$(adb devices 2>&1)
             
-            if echo "$DEVICES" | grep -q "${{ env.AVD_NAME }}.*device$"; then
+            if echo "$DEVICES" | grep -q "device$"; then
               echo "✅ Emulator detected after $i seconds!"
               DETECTED=1
               break
             fi
             
             if ! kill -0 $EMULATOR_PID 2>/dev/null; then
-              echo "❌ Emulator process crashed at attempt $i"
-              echo "=== Last 30 lines of emulator log ==="
+              echo "❌ Emulator crashed"
               tail -30 emulator.log
               exit 1
             fi
             
             if [ $((i % 30)) -eq 0 ]; then
-              echo "Still waiting... ($i/$BOOT_TIMEOUT seconds)"
-              echo "ADB: $DEVICES"
-              tail -5 emulator.log
+              echo "Waiting... ($i/$BOOT_TIMEOUT)"
+              tail -3 emulator.log
             fi
             
             sleep 1
@@ -196,16 +173,15 @@ EOF
       - name: Enable ADB TCP on Port 5555
         run: |
           export PATH=$ANDROID_HOME/platform-tools:$PATH
-          echo "=== ADB Devices Before TCP ==="
+          echo "=== ADB Devices ==="
           adb devices
           adb tcpip 5555
           sleep 5
-          echo "=== ADB Devices After TCP ==="
           adb devices
 
       - name: Setup frpc Configuration
         run: |
-          cat > frpc.ini <<'EOF'
+          cat > frpc.ini << 'EOF'
           [common]
           server_addr = 159.195.6.61
           server_port = 7000
@@ -231,11 +207,17 @@ EOF
       - name: Verify All Connections
         run: |
           export PATH=$ANDROID_HOME/platform-tools:$PATH
-          echo "📱 ADB Devices: $(adb devices)"
-          echo "🔌 Ports: $(netstat -tuln | grep -E '5555|7000' || echo 'Not ready')"
-          echo "🖥️  Emulator: $(ps aux | grep emulator | grep -v grep)"
-          echo "📝 Emulator Log: $(tail -15 emulator.log)"
-          echo "🌐 frpc Log: $(cat frpc.log)"
+          echo "=== ADB Devices ==="
+          adb devices
+          echo ""
+          echo "=== Ports ==="
+          netstat -tuln | grep -E '5555|7000' || echo "Checking..."
+          echo ""
+          echo "=== Emulator Log ==="
+          tail -15 emulator.log
+          echo ""
+          echo "=== frpc Log ==="
+          cat frpc.log
 
       - name: System Resources
         run: |
@@ -249,6 +231,23 @@ EOF
           RUNTIME_SECONDS=$(( ${{ env.RUNTIME_MINUTES }} * 60 ))
           HOURS=$(( ${{ env.RUNTIME_MINUTES }} / 60 ))
           MINUTES=$(( ${{ env.RUNTIME_MINUTES }} % 60 ))
-          echo "✅ Ready! Connect: adb connect 159.195.6.61:5555"
-          echo "⏱️  Running for $HOURS h $MINUTES m"
+          
+          echo "========================================="
+          echo "✅ Android 11 Emulator Ready"
+          echo "========================================="
+          echo "📊 Configuration:"
+          echo "   • OS: Android 11 (API 30)"
+          echo "   • RAM: 16 GB"
+          echo "   • Storage: 65 GB"
+          echo "   • Acceleration: KVM"
+          echo ""
+          echo "🔌 Connectivity:"
+          echo "   • ADB TCP: 127.0.0.1:5555"
+          echo "   • FRP Remote: 159.195.6.61:5555"
+          echo ""
+          echo "📱 Connect from phone:"
+          echo "   adb connect 159.195.6.61:5555"
+          echo ""
+          echo "⏱️  Runtime: $HOURS h $MINUTES m"
+          echo "========================================="
           sleep $RUNTIME_SECONDS
