@@ -198,7 +198,7 @@ jobs:
         uses: mxschmitt/action-tmate@v3
         with:
           limit-access-to-actor: false
-          timeout-minutes: 120
+          connect-timeout-seconds: 120
 
       - name: Keep Running
         run: |
@@ -221,12 +221,15 @@ jobs:
           echo ""
           echo "🖥️  SSH Terminal Access:"
           echo "  1. Check GitHub Actions logs for SSH command"
-          echo "  2. SSH in: ssh runner@<host>"
-          echo "  3. Use ADB directly: adb devices"
-          echo "  4. Get shell: adb shell"
-          echo "  5. View screen: scrcpy --video-codec=h264 --video-bit-rate=5M"
+          echo "  2. Look for: ssh [TOKEN]@nyc1.tmate.io"
+          echo "  3. Copy the full SSH command"
+          echo "  4. Use in Termius or terminal"
           echo ""
-          echo "📱 Access tmate session for 120 minutes"
+          echo "📝 Once Connected:"
+          echo "  • adb devices (list emulator)"
+          echo "  • adb shell (get shell access)"
+          echo "  • adb install app.apk (install apps)"
+          echo "  • adb root (get root access)"
           echo ""
           echo "⏱️  Emulator Runtime: $HOURS h $MINS m"
           echo "========================================="
