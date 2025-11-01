@@ -87,12 +87,12 @@ jobs:
           
           echo "✅ AVD created: $AVD_DIR"
           
-          # Update config for 60GB storage and 12GB RAM
+          # Update config for 40GB storage and 12GB RAM
           cat >> "$AVD_DIR/config.ini" << 'CONFEND'
           hw.ramSize=12288
           hw.arch=x86_64
           hw.cpu.model=qemu64
-          disk.dataPartition.size=61440m
+          disk.dataPartition.size=40960m
           hw.gpu.mode=auto
           hw.gpu.enabled=yes
           hw.accelerometer=yes
@@ -120,7 +120,7 @@ jobs:
           
           AVD_NAME=${{ env.AVD_NAME }}
           
-          echo "Starting emulator from /mnt (12GB RAM, 60GB storage)..."
+          echo "Starting emulator from /mnt (12GB RAM, 40GB storage)..."
           nohup emulator -avd "$AVD_NAME" \
             -no-window \
             -no-audio \
@@ -209,7 +209,7 @@ jobs:
           echo "=== Memory (12GB) ==="
           adb shell "cat /proc/meminfo | grep MemTotal"
           echo ""
-          echo "=== Internal Storage (60GB) ==="
+          echo "=== Internal Storage (40GB) ==="
           adb shell "df -h /data" 2>/dev/null || echo "Checking..."
           echo ""
           echo "=== /mnt Usage ==="
@@ -233,7 +233,7 @@ jobs:
           echo "  • OS: Android 11 (API 30)"
           echo "  • Architecture: x86_64"
           echo "  • RAM: 12 GB"
-          echo "  • Internal Storage: 60 GB (/mnt)"
+          echo "  • Internal Storage: 40 GB (/mnt)"
           echo "  • Location: /mnt/android-home"
           echo "  • Acceleration: KVM"
           echo ""
