@@ -46,13 +46,13 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install System Image and Tools
+      - name: Install x86_64 System Image
         run: |
           export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH
-          sdkmanager "emulator" "platform-tools"
+          echo "Installing x86_64 system image..."
           sdkmanager "system-images;android-30;google_apis;x86_64"
 
-      - name: Create AVD with x86_64 and 12GB RAM
+      - name: Create AVD and Find Location
         run: |
           export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH
           AVD_NAME=${{ env.AVD_NAME }}
@@ -65,28 +65,22 @@ jobs:
           
           sleep 5
           
-          AVD_DIR="$HOME/.android/avd/$AVD_NAME.avd"
-          AVD_INI_DIR="$HOME/.android/avd"
+          # Find the actual AVD location
+          echo "Finding AVD location..."
+          AVD_LOCATION=$(avdmanager list avd | grep -A 2 "Name: $AVD_NAME" | grep "Path:" | awk '{print $NF}')
           
-          echo "AVD_DIR: $AVD_DIR"
-          ls -la "$HOME/.android/avd/" || mkdir -p "$AVD_INI_DIR"
-          
-          if [ ! -f "$AVD_INI_DIR/$AVD_NAME.ini" ]; then
-            mkdir -p "$AVD_INI_DIR"
-            cat > "$AVD_INI_DIR/$AVD_NAME.ini" << 'INIEND'
-          avd.ini.encoding=UTF-8
-          path=.android/avd/android_11.avd
-          path.rel=avd/android_11.avd
-          target=android-30
-          INIEND
+          if [ -z "$AVD_LOCATION" ]; then
+            echo "❌ Could not find AVD location"
+            avdmanager list avd
+            exit 1
           fi
           
-          if [ ! -f "$AVD_DIR/config.ini" ]; then
-            mkdir -p "$AVD_DIR"
-            touch "$AVD_DIR/config.ini"
-          fi
+          echo "✅ Found AVD at: $AVD_LOCATION"
           
-          cat >> "$AVD_DIR/config.ini" << 'CONFEND'
+          # Modify the config.ini at the actual location
+          echo "Modifying config at: $AVD_LOCATION/config.ini"
+          
+          cat >> "$AVD_LOCATION/config.ini" << 'CONFEND'
           hw.ramSize=12288
           hw.arch=x86_64
           hw.cpu.model=qemu64
@@ -103,18 +97,15 @@ jobs:
           hw.lcd.density=440
           CONFEND
           
-          echo "=== AVDs Available ==="
-          avdmanager list avd
-          echo ""
-          echo "=== Config Verification ==="
-          cat "$AVD_DIR/config.ini"
+          echo "=== Config Contents ==="
+          cat "$AVD_LOCATION/config.ini"
 
-      - name: Start Emulator
+      - name: Start Emulator x86_64
         run: |
           export PATH=$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools:$PATH
           AVD_NAME=${{ env.AVD_NAME }}
           
-          echo "Starting x86_64 emulator with 12GB RAM..."
+          echo "Starting x86_64 emulator..."
           nohup emulator -avd "$AVD_NAME" \
             -no-window \
             -no-audio \
@@ -125,7 +116,7 @@ jobs:
           
           PID=$!
           echo "Emulator PID: $PID"
-          sleep 15
+          sleep 20
           
           echo "Restarting ADB..."
           adb kill-server 2>/dev/null || true
@@ -142,20 +133,20 @@ jobs:
             fi
             
             if ! kill -0 $PID 2>/dev/null; then
-              echo "❌ Emulator died"
-              tail -30 emulator.log
+              echo "❌ Emulator crashed"
+              cat emulator.log
               exit 1
             fi
             
             if [ $((i % 30)) -eq 0 ]; then
               echo "Waiting: $i/180"
+              tail -5 emulator.log
             fi
             sleep 1
           done
           
           echo "❌ Boot timeout"
-          adb devices -l
-          tail -50 emulator.log
+          cat emulator.log
           exit 1
 
       - name: Enable ADB TCP
@@ -200,7 +191,7 @@ jobs:
           netstat -tuln | grep -E '5555|7000' || echo "Checking..."
           echo ""
           echo "=== Emulator Log ==="
-          tail -10 emulator.log
+          tail -15 emulator.log
           echo ""
           echo "=== frpc Log ==="
           cat frpc.log
