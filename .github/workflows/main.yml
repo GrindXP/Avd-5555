@@ -11,17 +11,7 @@ jobs:
       AVD_API_LEVEL: 30
       AVD_TAG: google_apis
       AVD_ABI: x86_64
-      ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
-      FRPC_CONFIG: |
-        [common]
-        server_addr = 159.195.6.61
-        server_port = 7000
-
-        [adb]
-        type = tcp
-        local_ip = 127.0.0.1
-        local_port = 5555
-        remote_port = 5555
+      ANDROID_HOME: ${{ runner.temp }}/android-home
 
     steps:
       - name: Checkout repository
@@ -35,31 +25,36 @@ jobs:
 
       - name: Create AVD
         run: |
-          echo no | avdmanager create avd --force --name $AVD_NAME --package "system-images;android-30;google_apis;x86_64" --device "pixel" --sdcard 8192M
-          # Configure AVD for 16GB RAM and large storage (16384MB RAM)
-          AVD_DIR="$HOME/.android/avd/${AVD_NAME}.avd"
+          echo no | avdmanager create avd --force --name ${{ env.AVD_NAME }} --package "system-images;android-30;google_apis;x86_64" --device "pixel" --sdcard 8192M
+          AVD_DIR="$HOME/.android/avd/${{ env.AVD_NAME }}.avd"
           mkdir -p $AVD_DIR
           echo "hw.ramSize=16384" >> $AVD_DIR/config.ini
           echo "disk.dataPartition.size=65536m" >> $AVD_DIR/config.ini
 
       - name: Start Emulator
         run: |
-          nohup emulator -avd $AVD_NAME -no-window -no-audio -gpu swiftshader_indirect -partition-size 65536 -no-snapshot &
-
+          nohup emulator -avd ${{ env.AVD_NAME }} -no-window -no-audio -gpu swiftshader_indirect -partition-size 65536 -no-snapshot &
           adb wait-for-device
-
           adb tcpip 5555
           adb devices
 
       - name: Setup frpc
         run: |
-          cat > frpc.ini <<EOF
-          $FRPC_CONFIG
+          cat > frpc.ini <<'EOF'
+          [common]
+          server_addr = 159.195.6.61
+          server_port = 7000
+
+          [adb]
+          type = tcp
+          local_ip = 127.0.0.1
+          local_port = 5555
+          remote_port = 5555
           EOF
 
           wget https://github.com/fatedier/frp/releases/download/v0.58.1/frp_0.58.1_linux_amd64.tar.gz
           tar -xzf frp_0.58.1_linux_amd64.tar.gz
-          ./frp_0.58.1_linux_amd64/frpc -c frpc.ini &
+          nohup ./frp_0.58.1_linux_amd64/frpc -c frpc.ini &
 
       - name: Confirm ADB connection
         run: adb connect 127.0.0.1:5555
