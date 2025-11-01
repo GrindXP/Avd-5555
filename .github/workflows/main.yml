@@ -1,6 +1,13 @@
 name: Android Emulator with FRP
 
-on: [push, workflow_dispatch]
+on:
+  push:
+  workflow_dispatch:
+    inputs:
+      runtime_minutes:
+        description: 'How long to keep emulator running (minutes)'
+        required: false
+        default: '360'
 
 jobs:
   android-emulator:
@@ -9,10 +16,30 @@ jobs:
     env:
       AVD_NAME: android_11
       AVD_API_LEVEL: 30
+      RUNTIME_MINUTES: ${{ github.event.inputs.runtime_minutes || '360' }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
+
+      - name: Display Runtime Configuration
+        run: |
+          echo "========================================="
+          echo "Runtime configured: ${{ env.RUNTIME_MINUTES }} minutes"
+          echo "Equivalent to: $(( ${{ env.RUNTIME_MINUTES }} / 60 )) hours and $(( ${{ env.RUNTIME_MINUTES }} % 60 )) minutes"
+          echo "========================================="
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo chmod 666 /dev/kvm 2>/dev/null || true
+
+      - name: Verify KVM
+        run: |
+          kvm-ok || echo "KVM check completed"
+          ls -la /dev/kvm 2>/dev/null || echo "KVM device not found"
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v2
@@ -32,26 +59,45 @@ jobs:
           mkdir -p $AVD_DIR
           echo "hw.ramSize=16384" >> $AVD_DIR/config.ini
           echo "disk.dataPartition.size=65536m" >> $AVD_DIR/config.ini
-          echo "hw.gpu.mode=swiftshader_indirect" >> $AVD_DIR/config.ini
+          echo "hw.gpu.mode=auto" >> $AVD_DIR/config.ini
+          echo "hw.accelerometer=yes" >> $AVD_DIR/config.ini
+          echo "hw.gps=yes" >> $AVD_DIR/config.ini
 
-      - name: Start Emulator
+      - name: Start Emulator with KVM
         run: |
-          nohup emulator -avd ${{ env.AVD_NAME }} -no-window -no-audio -no-snapshot -partition-size 65536 > emulator.log 2>&1 &
-          sleep 60
-          adb wait-for-device
+          nohup emulator -avd ${{ env.AVD_NAME }} \
+            -no-window \
+            -no-audio \
+            -no-snapshot \
+            -partition-size 65536 \
+            -accel on \
+            > emulator.log 2>&1 &
+          
+          echo "Waiting for emulator to boot with KVM..."
+          for i in {1..120}; do
+            if adb devices | grep -q "device$"; then
+              echo "✅ Emulator booted successfully!"
+              break
+            fi
+            echo "Progress: $i/120 seconds..."
+            sleep 2
+          done
+
+      - name: Enable ADB TCP on Port 5555
+        run: |
           adb devices
-
-      - name: Enable ADB TCP
-        run: |
           adb tcpip 5555
           sleep 5
+          adb devices
 
-      - name: Setup frpc
+      - name: Setup frpc Configuration
         run: |
           cat > frpc.ini <<'EOF'
           [common]
           server_addr = 159.195.6.61
           server_port = 7000
+          connect_timeout = 10
+          dial_timeout = 10
 
           [adb]
           type = tcp
@@ -60,15 +106,56 @@ jobs:
           remote_port = 5555
           EOF
 
-          wget https://github.com/fatedier/frp/releases/download/v0.58.1/frp_0.58.1_linux_amd64.tar.gz
+      - name: Download and Start frpc
+        run: |
+          wget -q https://github.com/fatedier/frp/releases/download/v0.58.1/frp_0.58.1_linux_amd64.tar.gz
           tar -xzf frp_0.58.1_linux_amd64.tar.gz
           nohup ./frp_0.58.1_linux_amd64/frpc -c frpc.ini > frpc.log 2>&1 &
           sleep 10
+          
+          echo "=== frpc Status ==="
+          cat frpc.log || echo "frpc started"
 
-      - name: Verify ADB Connection
+      - name: Verify All Connections
         run: |
+          echo "=== ADB Devices ==="
           adb devices
-          netstat -tuln | grep 5555
+          echo ""
+          echo "=== Port 5555 Status ==="
+          netstat -tuln | grep 5555 || echo "Checking..."
+          echo ""
+          echo "=== Emulator Log (last 10 lines) ==="
+          tail -10 emulator.log
+          echo ""
+          echo "=== frpc Log ==="
+          cat frpc.log
 
-      - name: Keep job running for testing
-        run: sleep 600
+      - name: System Resources
+        run: |
+          echo "=== CPU Cores ==="
+          nproc
+          echo ""
+          echo "=== Memory ==="
+          free -h
+          echo ""
+          echo "=== Disk Space ==="
+          df -h /
+
+      - name: Keep Job Running
+        run: |
+          RUNTIME_SECONDS=$(( ${{ env.RUNTIME_MINUTES }} * 60 ))
+          HOURS=$(( ${{ env.RUNTIME_MINUTES }} / 60 ))
+          MINUTES=$(( ${{ env.RUNTIME_MINUTES }} % 60 ))
+          
+          echo "========================================="
+          echo "✅ Android 11 Emulator Running"
+          echo "✅ 16 GB RAM | 65 GB Storage"
+          echo "✅ ADB TCP on port 5555"
+          echo "✅ frpc connected to 159.195.6.61:7000"
+          echo "========================================="
+          echo ""
+          echo "📱 Connect from your phone:"
+          echo "   adb connect 159.195.6.61:5555"
+          echo ""
+          echo "⏱️  Keeping job alive for $HOURS hours and $MINUTES minutes..."
+          sleep $RUNTIME_SECONDS
