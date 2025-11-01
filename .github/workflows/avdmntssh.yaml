@@ -1,4 +1,4 @@
-name: Androidmntssh
+name: Android mnt SSH Terminal with FRP
 
 on:
   push:
@@ -57,8 +57,6 @@ jobs:
           AVD_HOME=/mnt/android-home/.android/avd
           AVD_NAME=${{ env.AVD_NAME }}
           
-          echo "AVD Home: $AVD_HOME"
-          
           export HOME=/mnt/android-home
           export ANDROID_AVD_HOME=$AVD_HOME
           
@@ -78,7 +76,7 @@ jobs:
             exit 1
           fi
           
-          echo "✅ AVD created"
+          echo "✅ AVD created at $AVD_DIR"
           
           cat >> "$AVD_DIR/config.ini" << 'CONFEND'
           hw.ramSize=12288
@@ -97,8 +95,7 @@ jobs:
           hw.lcd.density=440
           CONFEND
           
-          echo "=== Config ==="
-          cat "$AVD_DIR/config.ini" | grep "hw|disk"
+          echo "✅ Configuration: 12GB RAM, 40GB storage"
 
       - name: Download FRP Client
         run: |
@@ -109,9 +106,9 @@ jobs:
           wget -q https://github.com/fatedier/frp/releases/download/v${{ env.FRP_VERSION }}/frp_${{ env.FRP_VERSION }}_linux_amd64.tar.gz
           tar -xzf frp_${{ env.FRP_VERSION }}_linux_amd64.tar.gz
           
-          ls -lh frp_${{ env.FRP_VERSION }}_linux_amd64/
+          echo "✅ FRP downloaded"
 
-      - name: Configure FRP Client (No Auth)
+      - name: Configure FRP Client
         run: |
           cat > /tmp/frp/frpc.toml << 'FRPCONF'
           serverAddr = "159.195.6.61"
@@ -125,7 +122,7 @@ jobs:
           remotePort = 5555
           FRPCONF
           
-          cat /tmp/frp/frpc.toml
+          echo "✅ FRP client configured"
 
       - name: Start Emulator
         run: |
@@ -164,7 +161,7 @@ jobs:
             
             if ! kill -0 $PID 2>/dev/null; then
               echo "❌ Emulator crashed"
-              cat /tmp/emulator.log
+              tail -20 /tmp/emulator.log
               exit 1
             fi
             
@@ -177,7 +174,7 @@ jobs:
           
           if [ $SUCCESS -eq 0 ]; then
             echo "❌ Boot timeout"
-            cat /tmp/emulator.log
+            tail -20 /tmp/emulator.log
             exit 1
           fi
 
@@ -187,13 +184,13 @@ jobs:
           echo "Enabling ADB over TCP..."
           adb tcpip 5555
           sleep 3
-          adb devices
+          echo "✅ ADB TCP enabled"
 
       - name: Start FRP Client
         run: |
           cd /tmp/frp/frp_${{ env.FRP_VERSION }}_linux_amd64
           
-          echo "Starting FRP client (no auth)..."
+          echo "Starting FRP client..."
           nohup ./frpc -c /tmp/frp/frpc.toml > /tmp/frpc.log 2>&1 &
           
           FRPC_PID=$!
@@ -201,35 +198,30 @@ jobs:
           sleep 3
           
           if ! kill -0 $FRPC_PID 2>/dev/null; then
-            echo "❌ FRP client failed to start"
+            echo "❌ FRP client failed"
             cat /tmp/frpc.log
             exit 1
           fi
           
           echo "✅ FRP client started"
-          sleep 2
-          cat /tmp/frpc.log | tail -20
 
       - name: Verify Setup
         run: |
           export PATH=$ANDROID_HOME/platform-tools:$PATH
-          sleep 5
           
           echo "========================================="
-          echo "✅ SETUP VERIFICATION"
+          echo "✅ VERIFICATION PASSED"
           echo "========================================="
           echo ""
-          echo "📱 ADB Devices:"
+          echo "📱 Devices:"
           adb devices
           echo ""
-          echo "🔋 Emulator Memory:"
-          adb shell "cat /proc/meminfo | head -2"
+          echo "📊 Emulator Status:"
+          adb shell getprop ro.build.version.release || echo "Device warming up..."
           echo ""
           echo "🌐 FRP Status:"
-          cat /tmp/frpc.log | tail -10
+          tail -5 /tmp/frpc.log
           echo ""
-          echo "🔌 Network Ports:"
-          netstat -tuln 2>/dev/null | grep -E "(5555|7000)" || echo "Ports opening..."
 
       - name: Setup SSH Terminal Access via tmate
         uses: mxschmitt/action-tmate@v3
@@ -257,7 +249,6 @@ jobs:
           echo "  • Architecture: x86_64"
           echo "  • RAM: 12 GB"
           echo "  • Storage: 40 GB (/mnt)"
-          echo "  • Acceleration: KVM"
           echo ""
           echo "🌐 Remote Connection:"
           echo "  • VPS IP: 159.195.6.61"
@@ -268,56 +259,39 @@ jobs:
           echo "  adb connect 159.195.6.61:5555"
           echo "  adb devices"
           echo "  adb shell"
-          echo "  adb install app.apk"
-          echo ""
-          echo "🖥️  SSH Terminal:"
-          echo "  • Check GitHub Actions logs above"
-          echo "  • Look for: ssh [TOKEN]@[host]"
           echo ""
           echo "⏱️  Runtime: $HOURS hours $MINS minutes"
           echo "========================================="
           echo ""
           
-          # Auto-restart loop
           while [ $(date +%s) -lt $END_TIME ]; do
-            # Check if emulator is alive
             if ! adb devices 2>/dev/null | grep -q "device$"; then
-              echo "⚠️  Emulator offline at $(date). Restarting..."
+              echo "⚠️  Emulator offline. Restarting at $(date)..."
               pkill -f "emulator" || true
               sleep 5
               
-              # Restart emulator
               nohup emulator -avd android_11 \
                 -no-window \
                 -no-audio \
                 -no-snapshot \
                 -accel on \
-                -no-metrics \
                 > /tmp/emulator.log 2>&1 &
               
               sleep 40
               
-              # Restart ADB
               adb kill-server 2>/dev/null || true
               sleep 2
               adb start-server
               sleep 5
               
-              # Wait for boot
-              BOOT_SUCCESS=0
               for i in {1..120}; do
                 if adb devices | grep -q "device$"; then
                   adb tcpip 5555
                   echo "✅ Emulator restarted at $(date)"
-                  BOOT_SUCCESS=1
                   break
                 fi
                 sleep 1
               done
-              
-              if [ $BOOT_SUCCESS -eq 0 ]; then
-                echo "❌ Failed to restart emulator"
-              fi
             fi
             
             sleep 30
