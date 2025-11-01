@@ -48,21 +48,20 @@ jobs:
           df -h /
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v2
-        with:
-          api-level: 30
-          ndk-version: r21e
-          components: emulator,platform-tools
+        uses: android-actions/setup-android@v3
 
       - name: Install System Image
         run: |
           echo "Installing Android 11 system image..."
-          sdkmanager "system-images;android-30;google_apis;x86_64"
+          export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH
+          sdkmanager --install "system-images;android-30;google_apis;x86_64" --channel=0
 
       - name: Create AVD
         run: |
+          export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH
+          
           echo "Creating AVD with 16GB RAM and 65GB storage..."
-          echo no | avdmanager create avd --force --name ${{ env.AVD_NAME }} --package "system-images;android-30;google_apis;x86_64" --device "pixel" --sdcard 8192M
+          echo no | avdmanager -s create avd --force --name ${{ env.AVD_NAME }} --package "system-images;android-30;google_apis;x86_64" --device "pixel"
           
           AVD_DIR="$HOME/.android/avd/${{ env.AVD_NAME }}.avd"
           mkdir -p $AVD_DIR
@@ -78,7 +77,7 @@ jobs:
 
       - name: Start Emulator with KVM
         run: |
-          export PATH=$ANDROID_HOME/platform-tools:$PATH
+          export PATH=$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools:$PATH
           
           echo "Starting Android 11 emulator with KVM acceleration..."
           nohup emulator -avd ${{ env.AVD_NAME }} \
@@ -149,6 +148,8 @@ jobs:
 
       - name: Enable ADB TCP on Port 5555
         run: |
+          export PATH=$ANDROID_HOME/platform-tools:$PATH
+          
           echo "=== ADB Devices ==="
           adb devices
           echo ""
@@ -194,6 +195,8 @@ jobs:
 
       - name: Verify All Connections
         run: |
+          export PATH=$ANDROID_HOME/platform-tools:$PATH
+          
           echo "========================================="
           echo "=== Verification Report ==="
           echo "========================================="
@@ -234,6 +237,8 @@ jobs:
 
       - name: Keep Job Running
         run: |
+          export PATH=$ANDROID_HOME/platform-tools:$PATH
+          
           RUNTIME_SECONDS=$(( ${{ env.RUNTIME_MINUTES }} * 60 ))
           HOURS=$(( ${{ env.RUNTIME_MINUTES }} / 60 ))
           MINUTES=$(( ${{ env.RUNTIME_MINUTES }} % 60 ))
