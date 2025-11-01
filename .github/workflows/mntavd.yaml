@@ -22,12 +22,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Check /mnt Disk Space
+      - name: Check and Prepare /mnt
         run: |
           echo "=== /mnt Volume ==="
           df -h /mnt
-          sudo mkdir -p /mnt/.android/avd
-          sudo chmod 777 /mnt/.android/avd
+          echo ""
+          echo "=== Creating directories ==="
+          mkdir -p /mnt/.android/avd 2>/dev/null || sudo mkdir -p /mnt/.android/avd
+          ls -la /mnt/.android/ || echo "Directory check"
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
@@ -53,10 +55,9 @@ jobs:
           AVD_NAME=${{ env.AVD_NAME }}
           
           echo "Creating AVD at: $ANDROID_AVD_HOME"
-          mkdir -p "$ANDROID_AVD_HOME"
-          chmod 777 "$ANDROID_AVD_HOME"
+          mkdir -p "$ANDROID_AVD_HOME" 2>/dev/null || sudo mkdir -p "$ANDROID_AVD_HOME"
           
-          echo "Creating $AVD_NAME with 60GB storage on /mnt..."
+          echo "Creating $AVD_NAME..."
           echo no | avdmanager create avd \
             --force \
             --name "$AVD_NAME" \
@@ -69,6 +70,7 @@ jobs:
           
           if [ ! -d "$AVD_DIR" ]; then
             echo "❌ AVD directory not found"
+            ls -la "$ANDROID_AVD_HOME"
             exit 1
           fi
           
@@ -94,9 +96,8 @@ jobs:
           
           echo "=== AVD Config ==="
           cat "$AVD_DIR/config.ini"
-          
           echo ""
-          echo "=== /mnt Disk Before Boot ==="
+          echo "=== /mnt Disk Space ==="
           df -h /mnt
 
       - name: Start Emulator from /mnt
@@ -106,7 +107,7 @@ jobs:
           
           AVD_NAME=${{ env.AVD_NAME }}
           
-          echo "Starting x86_64 emulator with 60GB storage on /mnt..."
+          echo "Starting x86_64 emulator (12GB RAM, 60GB storage on /mnt)..."
           nohup emulator -avd "$AVD_NAME" \
             -no-window \
             -no-audio \
@@ -192,14 +193,14 @@ jobs:
           echo "=== ADB Devices ==="
           adb devices
           echo ""
-          echo "=== Internal Storage (should show ~60GB) ==="
-          adb shell df -h /data || echo "Checking..."
+          echo "=== Device Info (should show ~60GB) ==="
+          adb shell "df -h /data" 2>/dev/null || echo "Checking storage..."
           echo ""
           echo "=== /mnt Disk After Boot ==="
           df -h /mnt
           echo ""
           echo "=== Ports ==="
-          netstat -tuln | grep -E '5555|7000' || echo "Checking..."
+          netstat -tuln | grep -E '5555|7000'
 
       - name: Keep Running
         run: |
@@ -216,8 +217,7 @@ jobs:
           echo "  • OS: Android 11 (API 30)"
           echo "  • Architecture: x86_64"
           echo "  • RAM: 12 GB"
-          echo "  • Internal Storage: 60 GB"
-          echo "  • Location: /mnt (GitHub Actions volume)"
+          echo "  • Internal Storage: 60 GB (/mnt)"
           echo "  • Acceleration: KVM"
           echo ""
           echo "🔌 Remote Access:"
