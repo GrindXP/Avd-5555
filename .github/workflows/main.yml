@@ -52,12 +52,12 @@ jobs:
           sdkmanager "emulator" "platform-tools"
           sdkmanager "system-images;android-30;google_apis;x86_64"
 
-      - name: Create AVD with Config
+      - name: Create AVD with x86_64 and 12GB RAM
         run: |
           export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH
           AVD_NAME=${{ env.AVD_NAME }}
           
-          echo "Creating AVD: $AVD_NAME"
+          echo "Creating x86_64 AVD: $AVD_NAME"
           echo no | avdmanager create avd --force \
             --name "$AVD_NAME" \
             --package "system-images;android-30;google_apis;x86_64" \
@@ -65,15 +65,12 @@ jobs:
           
           sleep 5
           
-          # Now directories should exist
           AVD_DIR="$HOME/.android/avd/$AVD_NAME.avd"
           AVD_INI_DIR="$HOME/.android/avd"
           
           echo "AVD_DIR: $AVD_DIR"
-          echo "Checking if directory exists..."
           ls -la "$HOME/.android/avd/" || mkdir -p "$AVD_INI_DIR"
           
-          # Create ini file if missing
           if [ ! -f "$AVD_INI_DIR/$AVD_NAME.ini" ]; then
             mkdir -p "$AVD_INI_DIR"
             cat > "$AVD_INI_DIR/$AVD_NAME.ini" << 'INIEND'
@@ -84,15 +81,15 @@ jobs:
           INIEND
           fi
           
-          # Ensure config.ini exists
           if [ ! -f "$AVD_DIR/config.ini" ]; then
             mkdir -p "$AVD_DIR"
             touch "$AVD_DIR/config.ini"
           fi
           
-          # Append configuration
           cat >> "$AVD_DIR/config.ini" << 'CONFEND'
-          hw.ramSize=16384
+          hw.ramSize=12288
+          hw.arch=x86_64
+          hw.cpu.model=qemu64
           disk.dataPartition.size=65536m
           hw.gpu.mode=auto
           hw.gpu.enabled=yes
@@ -117,7 +114,7 @@ jobs:
           export PATH=$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools:$PATH
           AVD_NAME=${{ env.AVD_NAME }}
           
-          echo "Starting emulator..."
+          echo "Starting x86_64 emulator with 12GB RAM..."
           nohup emulator -avd "$AVD_NAME" \
             -no-window \
             -no-audio \
@@ -196,7 +193,7 @@ jobs:
       - name: Verify Setup
         run: |
           export PATH=$ANDROID_HOME/platform-tools:$PATH
-          echo "=== ADB ==="
+          echo "=== ADB Devices ==="
           adb devices
           echo ""
           echo "=== Ports ==="
@@ -216,8 +213,13 @@ jobs:
           MINS=$(((${{ env.RUNTIME_MINUTES }}) % 60))
           
           echo "========================================="
-          echo "✅ Android 11 Ready"
+          echo "✅ Android 11 x86_64 Ready"
           echo "========================================="
+          echo "📊 Config:"
+          echo "  • Architecture: x86_64"
+          echo "  • RAM: 12 GB"
+          echo "  • Storage: 65 GB"
+          echo ""
           echo "📱 Connect: adb connect 159.195.6.61:5555"
           echo "⏱️  Runtime: $HOURS h $MINS m"
           echo "========================================="
