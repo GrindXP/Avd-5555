@@ -1,4 +1,4 @@
-name: Android mnt play store
+name: Android mnt
 
 on:
   push:
@@ -47,24 +47,16 @@ jobs:
       - name: Create AVD on /mnt with Full Control
         run: |
           export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH
-          
-          # Create directories with proper ownership
           sudo mkdir -p /mnt/android-home/.android/avd
           sudo chown -R runner:runner /mnt/android-home
           
           AVD_HOME=/mnt/android-home/.android/avd
           AVD_NAME=${{ env.AVD_NAME }}
           
-          echo "AVD Home: $AVD_HOME"
-          ls -la /mnt/android-home/
-          
-          # Set HOME to /mnt/android-home so avdmanager uses it
           export HOME=/mnt/android-home
           export ANDROID_AVD_HOME=$AVD_HOME
           
           echo "Creating AVD with HOME=$HOME and ANDROID_AVD_HOME=$ANDROID_AVD_HOME"
-          
-          # Create AVD
           echo no | avdmanager create avd \
             --force \
             --name "$AVD_NAME" \
@@ -72,22 +64,16 @@ jobs:
             --device "pixel"
           
           sleep 3
-          
-          # Verify creation
-          echo "=== Listing AVDs ==="
           avdmanager list avd
           
           AVD_DIR="$AVD_HOME/$AVD_NAME.avd"
-          
           if [ ! -d "$AVD_DIR" ]; then
             echo "❌ AVD not created at $AVD_DIR"
             ls -la "$AVD_HOME"
             exit 1
           fi
-          
           echo "✅ AVD created: $AVD_DIR"
           
-          # Update config for 40GB storage and 12GB RAM
           cat >> "$AVD_DIR/config.ini" << 'CONFEND'
           hw.ramSize=12288
           hw.arch=x86_64
@@ -105,11 +91,7 @@ jobs:
           hw.lcd.density=440
           CONFEND
           
-          echo "=== Config Created ==="
           cat "$AVD_DIR/config.ini"
-          
-          echo ""
-          echo "=== /mnt Usage ==="
           df -h /mnt
 
       - name: Start Emulator from /mnt
@@ -117,10 +99,7 @@ jobs:
           export HOME=/mnt/android-home
           export ANDROID_AVD_HOME=/mnt/android-home/.android/avd
           export PATH=$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools:$PATH
-          
           AVD_NAME=${{ env.AVD_NAME }}
-          
-          echo "Starting emulator from /mnt (12GB RAM, 40GB storage)..."
           nohup emulator -avd "$AVD_NAME" \
             -no-window \
             -no-audio \
@@ -128,18 +107,13 @@ jobs:
             -accel on \
             -no-metrics \
             > /tmp/emulator.log 2>&1 &
-          
           PID=$!
           echo "Emulator PID: $PID"
           sleep 35
-          
-          echo "Restarting ADB..."
           adb kill-server 2>/dev/null || true
           sleep 2
           adb start-server
           sleep 5
-          
-          echo "Waiting for emulator..."
           SUCCESS=0
           for i in {1..180}; do
             if adb devices | grep -q "device$"; then
@@ -147,21 +121,17 @@ jobs:
               SUCCESS=1
               break
             fi
-            
             if ! kill -0 $PID 2>/dev/null; then
               echo "❌ Emulator died"
               cat /tmp/emulator.log
               exit 1
             fi
-            
             if [ $((i % 30)) -eq 0 ]; then
               echo "Boot progress: $i/180..."
               tail -5 /tmp/emulator.log
             fi
-            
             sleep 1
           done
-          
           if [ $SUCCESS -eq 0 ]; then
             echo "❌ Boot failed"
             cat /tmp/emulator.log
@@ -175,6 +145,16 @@ jobs:
           adb tcpip 5555
           sleep 3
           adb devices
+
+      # --- AUTHORIZATION FIX FOR REMOTE ADB ---
+      - name: Authorize Remote ADB Headless
+        run: |
+          export PATH=$ANDROID_HOME/platform-tools:$PATH
+          # Authorize connection for remote clients by connecting internally, so ADB keypair gets accepted
+          adb connect 127.0.0.1:5555 || true
+          sleep 2
+          adb shell "echo Remote ADB Authorized"
+          adb disconnect 127.0.0.1:5555
 
       - name: Setup frpc
         run: |
@@ -224,7 +204,6 @@ jobs:
           RUNTIME_SECONDS=$(((${{ env.RUNTIME_MINUTES }}) * 60))
           HOURS=$(((${{ env.RUNTIME_MINUTES }}) / 60))
           MINS=$(((${{ env.RUNTIME_MINUTES }}) % 60))
-          
           echo "========================================="
           echo "✅ Android 11 x86_64 Emulator Ready"
           echo "========================================="
