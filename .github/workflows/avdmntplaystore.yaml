@@ -1,4 +1,4 @@
-name: Android mnt play store
+name: Android mnt
 
 on:
   push:
@@ -138,23 +138,27 @@ jobs:
             exit 1
           fi
 
+      - name: Authorize ADB Before TCP Mode
+        run: |
+          export PATH=$ANDROID_HOME/platform-tools:$PATH
+          # Run shell command while emulator is still on default USB mode to authorize
+          adb -s emulator-5554 shell "echo ADB Authorized"
+          echo "✅ ADB key accepted"
+
       - name: Enable ADB TCP
         run: |
           export PATH=$ANDROID_HOME/platform-tools:$PATH
           adb devices
-          adb tcpip 5555
+          # Switch to TCP mode on the emulator device
+          adb -s emulator-5554 tcpip 5555
+          sleep 5
+          # Disconnect the old USB emulator
+          adb disconnect emulator-5554 || true
+          sleep 2
+          # Connect via TCP
+          adb connect 127.0.0.1:5555
           sleep 3
           adb devices
-
-      # --- AUTHORIZATION FIX FOR REMOTE ADB ---
-      - name: Authorize Remote ADB Headless
-        run: |
-          export PATH=$ANDROID_HOME/platform-tools:$PATH
-          # Authorize connection for remote clients by connecting internally, so ADB keypair gets accepted
-          adb connect 127.0.0.1:5555 || true
-          sleep 2
-          adb shell "echo Remote ADB Authorized"
-          adb disconnect 127.0.0.1:5555
 
       - name: Setup frpc
         run: |
@@ -209,7 +213,7 @@ jobs:
           echo "========================================="
           echo ""
           echo "📊 Specifications:"
-          echo "  • OS: Android 11 (API 30)"
+          echo "  • OS: Android 11 (API 30) + Play Store"
           echo "  • Architecture: x86_64"
           echo "  • RAM: 12 GB"
           echo "  • Internal Storage: 40 GB (/mnt)"
