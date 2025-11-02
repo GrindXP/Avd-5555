@@ -41,13 +41,13 @@ jobs:
           sudo mkdir -p /mnt/android-sdk-data
           sudo chown -R runner:runner /mnt/android-sdk-data 2>/dev/null || true
 
-      - name: Install x86_64 System Image
+      - name: Install x86_64 System Image with Play Store
         run: |
           export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH
           sdkmanager "emulator" "platform-tools"
-          sdkmanager "system-images;android-30;google_apis;x86_64"
+          sdkmanager "system-images;android-30;google_apis_playstore;x86_64"
 
-      - name: Create AVD on /mnt
+      - name: Create AVD on /mnt with Play Store
         run: |
           export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH
           
@@ -64,7 +64,7 @@ jobs:
           echo no | avdmanager create avd \
             --force \
             --name "$AVD_NAME" \
-            --package "system-images;android-30;google_apis;x86_64" \
+            --package "system-images;android-30;google_apis_playstore;x86_64" \
             --device "pixel"
           
           sleep 3
@@ -79,6 +79,9 @@ jobs:
           echo "✅ AVD created at $AVD_DIR"
           
           cat >> "$AVD_DIR/config.ini" << 'CONFEND'
+          PlayStore.enabled = true
+          tag.display = Google Play
+          tag.id = google_apis_playstore
           hw.ramSize=12288
           hw.arch=x86_64
           hw.cpu.model=qemu64
@@ -95,7 +98,7 @@ jobs:
           hw.lcd.density=440
           CONFEND
           
-          echo "✅ Configuration: 12GB RAM, 40GB storage"
+          echo "✅ Configuration: 12GB RAM, 40GB storage, Play Store enabled"
 
       - name: Download FRP Client
         run: |
@@ -178,13 +181,31 @@ jobs:
             exit 1
           fi
 
-      - name: Enable ADB TCP
+      - name: Setup ADB Authorization & Enable TCP
         run: |
+          set -e
           export PATH=$ANDROID_HOME/platform-tools:$PATH
-          echo "Enabling ADB over TCP..."
+          
+          echo "Generating ADB keys..."
+          mkdir -p ~/.android
+          if [ ! -f ~/.android/adbkey ]; then
+            echo "no" | adb keygen ~/.android/adbkey
+            echo "✅ Keys generated"
+          else
+            echo "✅ Keys already exist"
+          fi
+          
+          echo "Pushing authorization key to emulator..."
+          adb shell mkdir -p /data/misc/adb
+          adb push ~/.android/adbkey.pub /data/misc/adb/adb_keys
+          adb shell chmod 644 /data/misc/adb/adb_keys
+          
+          echo "Enabling ADB TCP..."
           adb tcpip 5555
           sleep 3
-          echo "✅ ADB TCP enabled"
+          
+          echo "✅ ADB ready - NO AUTHENTICATION REQUIRED"
+          adb devices
 
       - name: Start FRP Client
         run: |
@@ -241,7 +262,7 @@ jobs:
           END_TIME=$(($(date +%s) + RUNTIME_SECONDS))
           
           echo "========================================="
-          echo "✅ Android 11 Emulator Ready with FRP"
+          echo "✅ Android 11 Emulator Ready with FRP & Play Store"
           echo "========================================="
           echo ""
           echo "📊 Configuration:"
@@ -249,8 +270,9 @@ jobs:
           echo "  • Architecture: x86_64"
           echo "  • RAM: 12 GB"
           echo "  • Storage: 40 GB (/mnt)"
+          echo "  • Play Store: ✅ ENABLED"
           echo ""
-          echo "🌐 Remote Connection:"
+          echo "🌐 Remote Connection (NO AUTHENTICATION):"
           echo "  • VPS IP: 159.195.6.61"
           echo "  • FRP Port: 7000"
           echo "  • ADB Remote Port: 5555"
