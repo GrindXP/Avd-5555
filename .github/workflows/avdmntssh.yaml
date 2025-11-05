@@ -21,6 +21,7 @@ jobs:
       FRP_VERSION: 0.65.0
 
     steps:
+      # ====== SYSTEM SETUP ======
       - name: Checkout repository
         uses: actions/checkout@v3
 
@@ -35,42 +36,48 @@ jobs:
           sudo chmod 666 /dev/kvm 2>/dev/null || true
           echo "✅ KVM enabled"
 
+      # ====== STORAGE SETUP ======
       - name: Check /mnt Space
         run: |
-          echo "=== /mnt Volume ==="
+          echo "=== Storage Check ==="
           df -h /mnt
           sudo mkdir -p /mnt/android-sdk-data
           sudo chown -R runner:runner /mnt/android-sdk-data 2>/dev/null || true
           echo "✅ /mnt ready"
 
-      - name: Setup Display & VNC
+      # ====== DISPLAY & VNC SETUP ======
+      - name: Install Display Packages
         run: |
-          echo "Setting up display and VNC..."
-          sudo apt-get update -qq --fix-missing 2>&1 || true
-          sudo apt-get install -y x11vnc xvfb 2>&1 || true
-          echo "✅ Display setup ready"
+          echo "Installing display packages..."
+          sudo apt-get update -qq 2>&1 | tail -1
+          sudo apt-get install -y x11vnc xvfb 2>&1 | grep -E "Setting up|done" | tail -2
+          echo "✅ Display packages installed"
 
+      # ====== EMULATOR DEPENDENCIES ======
       - name: Install Emulator Runtime Dependencies
         run: |
-          echo "Installing emulator dependencies..."
-          sudo apt-get update -qq 2>&1 || true
+          echo "Installing emulator runtime dependencies..."
+          sudo apt-get update -qq 2>&1 | tail -1
           sudo apt-get install -y \
-            libpulse0 \
-            libpulse-dev \
-            libasound2 \
             libxext6 \
             libxrender1 \
             libgl1-mesa-glx \
-            2>&1 | tail -3
-          echo "✅ Dependencies installed"
+            libglu1-mesa \
+            libxkbcommon0 \
+            2>&1 | grep -E "Setting up|done" | tail -5
+          echo "✅ Runtime dependencies installed"
 
+      # ====== ANDROID SYSTEM IMAGE ======
       - name: Install PlayStore System Image
         run: |
           export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH
+          echo "Installing emulator..."
           sdkmanager "emulator" "platform-tools" > /dev/null 2>&1
+          echo "Installing PlayStore system image..."
           sdkmanager "system-images;android-30;google_apis_playstore;x86_64" > /dev/null 2>&1
-          echo "✅ PlayStore image installed"
+          echo "✅ PlayStore system image installed"
 
+      # ====== AVD CREATION ======
       - name: Create PlayStore AVD on /mnt
         run: |
           export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH
@@ -96,7 +103,7 @@ jobs:
           AVD_DIR="$AVD_HOME/$AVD_NAME.avd"
           
           if [ ! -d "$AVD_DIR" ]; then
-            echo "❌ AVD not created"
+            echo "❌ AVD creation failed"
             exit 1
           fi
           
@@ -112,28 +119,28 @@ jobs:
           hw.accelerometer=yes
           hw.gps=yes
           hw.battery=yes
-          hw.audioInput=yes
-          hw.audioOutput=yes
+          hw.audioInput=no
+          hw.audioOutput=no
           hw.keyboard=yes
           hw.mainKeys=no
           hw.lcd.density=440
           PlayStore.enabled=yes
           CONFEND
           
-          echo "✅ AVD configured"
+          echo "✅ AVD configured (12GB RAM, 40GB storage, PlayStore)"
 
-      - name: Download FRP Client
+      # ====== FRP TUNNEL SETUP ======
+      - name: Download & Configure FRP
         run: |
           mkdir -p /tmp/frp
           cd /tmp/frp
           
+          echo "Downloading FRP..."
           wget -q https://github.com/fatedier/frp/releases/download/v${{ env.FRP_VERSION }}/frp_${{ env.FRP_VERSION }}_linux_amd64.tar.gz
           tar -xzf frp_${{ env.FRP_VERSION }}_linux_amd64.tar.gz
-          echo "✅ FRP ready"
-
-      - name: Configure FRP for VNC on Port 5900
-        run: |
-          cat > /tmp/frp/frpc.toml << 'FRPCONF'
+          
+          echo "Configuring FRP..."
+          cat > frpc.toml << 'FRPCONF'
           serverAddr = "159.195.6.61"
           serverPort = 7000
           
@@ -144,30 +151,68 @@ jobs:
           localPort = 5900
           remotePort = 5900
           FRPCONF
-          echo "✅ FRP configured"
+          
+          echo "✅ FRP ready"
 
-      - name: Start Xvfb & VNC
+      # ====== START DISPLAY SERVER ======
+      - name: Start Xvfb Virtual Display
         run: |
+          echo "Starting Xvfb on :99..."
           Xvfb :99 -screen 0 1920x1080x24 > /tmp/xvfb.log 2>&1 &
+          XVFB_PID=$!
+          echo "Xvfb PID: $XVFB_PID"
+          
           sleep 5
+          
           export DISPLAY=:99
-          x11vnc -display :99 -forever -nopw -rfbport 5900 -bg > /tmp/vnc.log 2>&1
-          sleep 3
-          echo "✅ Xvfb & VNC started on :99:5900"
+          if ! xdpyinfo > /dev/null 2>&1; then
+            echo "❌ Display failed"
+            cat /tmp/xvfb.log
+            exit 1
+          fi
+          
+          echo "✅ Xvfb started on :99"
 
-      - name: Start Emulator with Display
+      # ====== START VNC SERVER ======
+      - name: Start VNC Server on Port 5900
+        run: |
+          export DISPLAY=:99
+          
+          echo "Starting VNC server..."
+          x11vnc \
+            -display :99 \
+            -forever \
+            -nopw \
+            -rfbport 5900 \
+            -bg \
+            -logfile /tmp/vnc.log
+          
+          sleep 3
+          
+          if ! pgrep x11vnc > /dev/null; then
+            echo "❌ VNC failed to start"
+            cat /tmp/vnc.log
+            exit 1
+          fi
+          
+          echo "✅ VNC server ready on port 5900"
+
+      # ====== START EMULATOR ======
+      - name: Start Android Emulator
         run: |
           export HOME=/mnt/android-home
           export ANDROID_AVD_HOME=/mnt/android-home/.android/avd
           export PATH=$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools:$PATH
           export DISPLAY=:99
+          export QEMU_AUDIO_DRV=none
           
-          echo "Starting emulator with DISPLAY=:99..."
+          echo "Starting emulator on DISPLAY=:99..."
           nohup emulator -avd android_11 \
             -snapshot \
             -accel on \
             -no-metrics \
             -gpu on \
+            -no-audio \
             > /tmp/emulator.log 2>&1 &
           
           PID=$!
@@ -182,12 +227,14 @@ jobs:
           echo "Waiting for emulator to boot..."
           for i in {1..180}; do
             if adb devices 2>/dev/null | grep -q "emulator"; then
-              echo "✅ Emulator ready ($i sec)"
+              echo "✅ Emulator booted successfully ($i sec)"
               break
             fi
             
             if ! kill -0 $PID 2>/dev/null; then
               echo "❌ Emulator crashed"
+              echo ""
+              echo "=== EMULATOR LOG ==="
               tail -50 /tmp/emulator.log
               exit 1
             fi
@@ -195,13 +242,27 @@ jobs:
             sleep 1
           done
 
-      - name: Start FRP Tunnel
+      # ====== START FRP TUNNEL ======
+      - name: Start FRP Tunnel to VPS
         run: |
           cd /tmp/frp/frp_${{ env.FRP_VERSION }}_linux_amd64
+          
+          echo "Starting FRP tunnel..."
           nohup ./frpc -c /tmp/frp/frpc.toml > /tmp/frpc.log 2>&1 &
+          FRPC_PID=$!
+          echo "FRP PID: $FRPC_PID"
+          
           sleep 3
-          echo "✅ FRP tunnel active on port 5900"
+          
+          if ! pgrep frpc > /dev/null; then
+            echo "❌ FRP failed"
+            cat /tmp/frpc.log
+            exit 1
+          fi
+          
+          echo "✅ FRP tunnel active"
 
+      # ====== VERIFY SETUP ======
       - name: Verify Complete Setup
         run: |
           export DISPLAY=:99
@@ -209,36 +270,44 @@ jobs:
           
           echo ""
           echo "========================================="
-          echo "✅ ANDROID PLAYSTORE + VNC READY"
+          echo "✅ SETUP COMPLETE - READY FOR USE"
           echo "========================================="
           echo ""
-          echo "📊 Processes Running:"
-          ps aux | grep -E "Xvfb|x11vnc|emulator|frpc" | grep -v grep | wc -l
+          echo "📊 System Status:"
+          echo "  Processes: $(ps aux | grep -E 'Xvfb|x11vnc|emulator|frpc' | grep -v grep | wc -l)"
           echo ""
           echo "📱 ADB Devices:"
           adb devices
           echo ""
           echo "📺 VNC Server:"
-          ss -tlnp | grep 5900 | head -1
+          ss -tlnp | grep 5900 | awk '{print "  Port: 5900, Listening: " $4}'
           echo ""
-          echo "🌐 Remote Connection:"
+          echo "🌐 REMOTE CONNECTION:"
           echo "  VNC Viewer → 159.195.6.61:5900"
+          echo "  No authentication required"
+          echo ""
+          echo "📂 Emulator Storage:"
+          echo "  Location: /mnt/android-home/.android/avd/android_11.avd"
+          echo "  Size: 40GB"
           echo ""
           echo "========================================="
           echo ""
 
+      # ====== SSH ACCESS ======
       - name: SSH Terminal Access via tmate
         uses: mxschmitt/action-tmate@v3
         with:
           limit-access-to-actor: false
           connect-timeout-seconds: 120
 
+      # ====== KEEP RUNNING ======
       - name: Keep Emulator & Services Running
         run: |
           export HOME=/mnt/android-home
           export ANDROID_AVD_HOME=/mnt/android-home/.android/avd
           export PATH=$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools:$PATH
           export DISPLAY=:99
+          export QEMU_AUDIO_DRV=none
           
           RUNTIME_SECONDS=$(((${{ env.RUNTIME_MINUTES }}) * 60))
           HOURS=$(((${{ env.RUNTIME_MINUTES }}) / 60))
@@ -247,50 +316,56 @@ jobs:
           
           echo ""
           echo "========================================="
-          echo "✅ MONITORING SERVICES"
+          echo "⏱️  MONITORING SERVICES"
           echo "========================================="
-          echo ""
-          echo "🕐 Runtime: $HOURS hours $MINS minutes"
+          echo "Runtime: $HOURS hours $MINS minutes"
           echo "========================================="
           echo ""
           
           while [ $(date +%s) -lt $END_TIME ]; do
-            # Restart Xvfb if dead
+            TIME_LEFT=$((END_TIME - $(date +%s)))
+            HOURS_LEFT=$((TIME_LEFT / 3600))
+            MINS_LEFT=$(((TIME_LEFT % 3600) / 60))
+            
+            # Check and restart Xvfb
             if ! pgrep -f "Xvfb :99" > /dev/null; then
-              echo "⚠️  Xvfb died. Restarting..."
+              echo "[$(date '+%H:%M:%S')] ⚠️  Xvfb crashed. Restarting..."
               Xvfb :99 -screen 0 1920x1080x24 > /tmp/xvfb.log 2>&1 &
               sleep 5
             fi
             
-            # Restart VNC if dead
+            # Check and restart VNC
             if ! pgrep x11vnc > /dev/null; then
-              echo "⚠️  VNC died. Restarting..."
+              echo "[$(date '+%H:%M:%S')] ⚠️  VNC crashed. Restarting..."
               x11vnc -display :99 -forever -nopw -rfbport 5900 -bg > /tmp/vnc.log 2>&1
               sleep 3
             fi
             
-            # Restart emulator if dead
+            # Check and restart emulator
             if ! pgrep -f "emulator -avd" > /dev/null; then
-              echo "⚠️  Emulator died. Restarting..."
+              echo "[$(date '+%H:%M:%S')] ⚠️  Emulator crashed. Restarting..."
               nohup emulator -avd android_11 \
                 -snapshot \
                 -accel on \
                 -no-metrics \
                 -gpu on \
+                -no-audio \
                 > /tmp/emulator.log 2>&1 &
               sleep 60
             fi
             
-            # Restart FRP if dead
+            # Check and restart FRP
             if ! pgrep frpc > /dev/null; then
-              echo "⚠️  FRP tunnel died. Restarting..."
+              echo "[$(date '+%H:%M:%S')] ⚠️  FRP crashed. Restarting..."
               cd /tmp/frp/frp_${{ env.FRP_VERSION }}_linux_amd64
               nohup ./frpc -c /tmp/frp/frpc.toml > /tmp/frpc.log 2>&1 &
               sleep 3
             fi
             
-            sleep 60
+            echo "[$(date '+%H:%M:%S')] ✅ All services running | Time left: $HOURS_LEFT:$(printf '%02d' $MINS_LEFT)"
+            
+            sleep 120
           done
           
           echo ""
-          echo "✅ Runtime completed"
+          echo "✅ Runtime completed successfully"
