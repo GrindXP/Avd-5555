@@ -1,11 +1,11 @@
-name: Android mnt SSH Terminal with FRP
+name: Android PlayStore Emulator with FRP Tunnel
 
 on:
   push:
   workflow_dispatch:
     inputs:
       runtime_minutes:
-        description: 'How long to keep emulator running (minutes)'
+        description: 'Runtime duration (minutes)'
         required: false
         default: '360'
 
@@ -47,7 +47,7 @@ jobs:
           sdkmanager "emulator" "platform-tools"
           sdkmanager "system-images;android-30;google_apis_playstore;x86_64"
 
-      - name: Create PlayStore AVD on /mnt
+      - name: Create PlayStore AVD
         run: |
           export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH
           
@@ -76,7 +76,7 @@ jobs:
             exit 1
           fi
           
-          echo "✅ AVD created at $AVD_DIR"
+          echo "✅ AVD created"
           
           cat >> "$AVD_DIR/config.ini" << 'CONFEND'
           hw.ramSize=12288
@@ -96,7 +96,7 @@ jobs:
           PlayStore.enabled=yes
           CONFEND
           
-          echo "✅ PlayStore AVD configured (12GB RAM, 40GB storage)"
+          echo "✅ Configuration: 12GB RAM, 40GB storage"
 
       - name: Download FRP Client
         run: |
@@ -123,7 +123,7 @@ jobs:
           remotePort = 5555
           FRPCONF
           
-          echo "✅ FRP client configured for VPS tunnel"
+          echo "✅ FRP configured"
 
       - name: Start Emulator
         run: |
@@ -133,7 +133,7 @@ jobs:
           
           AVD_NAME=${{ env.AVD_NAME }}
           
-          echo "Starting PlayStore emulator..."
+          echo "Starting emulator..."
           nohup emulator -avd "$AVD_NAME" \
             -no-window \
             -no-audio \
@@ -151,10 +151,10 @@ jobs:
           adb start-server
           sleep 5
           
-          echo "Waiting for emulator to boot..."
+          echo "Waiting for emulator..."
           for i in {1..180}; do
             if adb devices 2>/dev/null | grep -q "emulator"; then
-              echo "✅ Emulator booted! ($i sec)"
+              echo "✅ Emulator ready! ($i sec)"
               break
             fi
             
@@ -165,7 +165,7 @@ jobs:
             fi
             
             if [ $((i % 30)) -eq 0 ]; then
-              echo "⏳ Boot progress: $i/180..."
+              echo "⏳ Boot: $i/180..."
             fi
             
             sleep 1
@@ -175,46 +175,42 @@ jobs:
         run: |
           cd /tmp/frp/frp_${{ env.FRP_VERSION }}_linux_amd64
           
-          echo "Starting FRP client..."
+          echo "Starting FRP..."
           nohup ./frpc -c /tmp/frp/frpc.toml > /tmp/frpc.log 2>&1 &
           
           FRPC_PID=$!
-          echo "FRP Client PID: $FRPC_PID"
           sleep 3
           
           if ! kill -0 $FRPC_PID 2>/dev/null; then
-            echo "❌ FRP client failed"
+            echo "❌ FRP failed"
             cat /tmp/frpc.log
             exit 1
           fi
           
-          echo "✅ FRP client started - tunnel active"
+          echo "✅ FRP tunnel active"
 
       - name: Verify Setup
         run: |
           export PATH=$ANDROID_HOME/platform-tools:$PATH
           
           echo "========================================="
-          echo "✅ EMULATOR & TUNNEL READY"
+          echo "✅ EMULATOR READY"
           echo "========================================="
           echo ""
-          echo "📱 Local Devices:"
+          echo "📱 Local:"
           adb devices
           echo ""
-          echo "📊 Emulator Info:"
-          adb shell getprop ro.build.version.release 2>/dev/null || echo "Warming up..."
-          echo ""
-          echo "🌐 FRP Tunnel Status:"
+          echo "🌐 FRP Tunnel:"
           tail -3 /tmp/frpc.log
           echo ""
 
-      - name: SSH Terminal Access via tmate
+      - name: SSH Access via tmate
         uses: mxschmitt/action-tmate@v3
         with:
           limit-access-to-actor: false
           connect-timeout-seconds: 120
 
-      - name: Monitor Emulator
+      - name: Keep Emulator Running
         run: |
           export HOME=/mnt/android-home
           export ANDROID_AVD_HOME=/mnt/android-home/.android/avd
@@ -226,34 +222,27 @@ jobs:
           END_TIME=$(($(date +%s) + RUNTIME_SECONDS))
           
           echo "========================================="
-          echo "✅ Android 11 PlayStore Emulator Running"
+          echo "✅ Android 11 PlayStore Emulator"
           echo "========================================="
           echo ""
-          echo "📊 Configuration:"
+          echo "📊 Specs:"
           echo "  • OS: Android 11 (API 30)"
           echo "  • Edition: PlayStore"
-          echo "  • Architecture: x86_64"
           echo "  • RAM: 12 GB"
           echo "  • Storage: 40 GB"
           echo ""
-          echo "🔌 VPS Connection:"
-          echo "  • Server: 159.195.6.61:7000"
+          echo "🔌 VPS Tunnel:"
+          echo "  • Server: 159.195.6.61"
           echo "  • ADB Port: 5555"
           echo ""
           echo "⏱️  Runtime: $HOURS hours $MINS minutes"
-          echo ""
-          echo "From tmate terminal:"
-          echo "  adb devices"
-          echo "  adb shell"
-          echo ""
           echo "========================================="
           echo ""
           
           while [ $(date +%s) -lt $END_TIME ]; do
-            # Keep emulator alive
+            # Monitor emulator
             if ! pgrep -f "emulator -avd" > /dev/null; then
-              echo "⚠️  Emulator died, restarting..."
-              
+              echo "⚠️  Emulator died at $(date)"
               nohup emulator -avd android_11 \
                 -no-window \
                 -no-audio \
@@ -268,9 +257,9 @@ jobs:
               sleep 5
             fi
             
-            # Keep FRP tunnel alive
+            # Monitor FRP
             if ! pgrep -f "frpc" > /dev/null; then
-              echo "⚠️  FRP tunnel died, restarting..."
+              echo "⚠️  FRP died at $(date)"
               cd /tmp/frp/frp_${{ env.FRP_VERSION }}_linux_amd64
               nohup ./frpc -c /tmp/frp/frpc.toml > /tmp/frpc.log 2>&1 &
               sleep 3
