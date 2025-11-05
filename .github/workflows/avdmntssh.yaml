@@ -50,6 +50,20 @@ jobs:
           sudo apt-get install -y x11vnc xvfb 2>&1 || true
           echo "✅ Display setup ready"
 
+      - name: Install Emulator Runtime Dependencies
+        run: |
+          echo "Installing emulator dependencies..."
+          sudo apt-get update -qq 2>&1 || true
+          sudo apt-get install -y \
+            libpulse0 \
+            libpulse-dev \
+            libasound2 \
+            libxext6 \
+            libxrender1 \
+            libgl1-mesa-glx \
+            2>&1 | tail -3
+          echo "✅ Dependencies installed"
+
       - name: Install PlayStore System Image
         run: |
           export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH
@@ -98,8 +112,8 @@ jobs:
           hw.accelerometer=yes
           hw.gps=yes
           hw.battery=yes
-          hw.audioInput=no
-          hw.audioOutput=no
+          hw.audioInput=yes
+          hw.audioOutput=yes
           hw.keyboard=yes
           hw.mainKeys=no
           hw.lcd.density=440
