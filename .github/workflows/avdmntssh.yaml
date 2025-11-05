@@ -41,13 +41,13 @@ jobs:
           sudo mkdir -p /mnt/android-sdk-data
           sudo chown -R runner:runner /mnt/android-sdk-data 2>/dev/null || true
 
-      - name: Install x86_64 System Image
+      - name: Install x86_64 PlayStore System Image
         run: |
           export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH
           sdkmanager "emulator" "platform-tools"
-          sdkmanager "system-images;android-30;google_apis;x86_64"
+          sdkmanager "system-images;android-30;google_apis_playstore;x86_64"
 
-      - name: Create AVD on /mnt
+      - name: Create AVD on /mnt with PlayStore
         run: |
           export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH
           
@@ -60,11 +60,11 @@ jobs:
           export HOME=/mnt/android-home
           export ANDROID_AVD_HOME=$AVD_HOME
           
-          echo "Creating AVD..."
+          echo "Creating AVD with PlayStore..."
           echo no | avdmanager create avd \
             --force \
             --name "$AVD_NAME" \
-            --package "system-images;android-30;google_apis;x86_64" \
+            --package "system-images;android-30;google_apis_playstore;x86_64" \
             --device "pixel"
           
           sleep 3
@@ -93,9 +93,10 @@ jobs:
           hw.keyboard=yes
           hw.mainKeys=no
           hw.lcd.density=440
+          PlayStore.enabled=yes
           CONFEND
           
-          echo "✅ Configuration: 12GB RAM, 40GB storage"
+          echo "✅ Configuration: 12GB RAM, 40GB storage, PlayStore enabled"
 
       - name: Download FRP Client
         run: |
@@ -132,7 +133,7 @@ jobs:
           
           AVD_NAME=${{ env.AVD_NAME }}
           
-          echo "Starting emulator..."
+          echo "Starting emulator with PlayStore..."
           nohup emulator -avd "$AVD_NAME" \
             -no-window \
             -no-audio \
@@ -241,14 +242,15 @@ jobs:
           END_TIME=$(($(date +%s) + RUNTIME_SECONDS))
           
           echo "========================================="
-          echo "✅ Android 11 Emulator Ready with FRP"
+          echo "✅ Android 11 Emulator Ready with FRP & PlayStore"
           echo "========================================="
           echo ""
           echo "📊 Configuration:"
-          echo "  • OS: Android 11 (API 30)"
+          echo "  • OS: Android 11 (API 30) - PlayStore Edition"
           echo "  • Architecture: x86_64"
           echo "  • RAM: 12 GB"
           echo "  • Storage: 40 GB (/mnt)"
+          echo "  • Google Play Store: Enabled"
           echo ""
           echo "🌐 Remote Connection:"
           echo "  • VPS IP: 159.195.6.61"
