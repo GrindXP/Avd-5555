@@ -53,19 +53,43 @@ jobs:
           sudo apt-get install -y x11vnc xvfb 2>&1 | grep -E "Setting up|done" | tail -2
           echo "✅ Display packages installed"
 
-      # ====== EMULATOR DEPENDENCIES ======
-      - name: Install Emulator Runtime Dependencies
+      # ====== LIBPULSE AGGRESSIVE INSTALL ======
+      - name: Install libpulse Aggressively
         run: |
-          echo "Installing emulator runtime dependencies..."
+          echo "Installing libpulse with aggressive approach..."
+          
+          # Update package lists
           sudo apt-get update -qq 2>&1 | tail -1
-          sudo apt-get install -y \
-            libxext6 \
-            libxrender1 \
-            libgl1-mesa-glx \
-            libglu1-mesa \
-            libxkbcommon0 \
-            2>&1 | grep -E "Setting up|done" | tail -5
-          echo "✅ Runtime dependencies installed"
+          
+          # Remove and reinstall
+          echo "Step 1: Reinstalling libpulse0..."
+          sudo apt-get install --reinstall -y libpulse0 2>&1 | grep -E "Setting up|done"
+          
+          # Verify installation
+          echo ""
+          echo "Step 2: Verifying installation..."
+          if [ -f /usr/lib/x86_64-linux-gnu/libpulse.so.0 ]; then
+            echo "✅ libpulse.so.0 found at: /usr/lib/x86_64-linux-gnu/libpulse.so.0"
+            file /usr/lib/x86_64-linux-gnu/libpulse.so.0
+          else
+            echo "⚠️  libpulse.so.0 not in standard location, searching..."
+            FOUND=$(find /usr/lib -name "libpulse.so.0" 2>/dev/null | head -1)
+            if [ -n "$FOUND" ]; then
+              echo "✅ Found at: $FOUND"
+            else
+              echo "❌ libpulse.so.0 not found, trying manual download..."
+              cd /tmp
+              sudo apt-get download libpulse0 2>&1 | tail -3
+              sudo dpkg -i libpulse0*.deb 2>&1 | tail -3 || true
+            fi
+          fi
+          
+          # Final check via ldconfig
+          echo ""
+          echo "Step 3: Final verification..."
+          ldconfig -p | grep libpulse && echo "✅ libpulse registered in ldconfig" || echo "⚠️  Warning: libpulse not in ldconfig"
+          echo ""
+          echo "✅ libpulse installation complete"
 
       # ====== ANDROID SYSTEM IMAGE ======
       - name: Install PlayStore System Image
@@ -119,8 +143,8 @@ jobs:
           hw.accelerometer=yes
           hw.gps=yes
           hw.battery=yes
-          hw.audioInput=no
-          hw.audioOutput=no
+          hw.audioInput=yes
+          hw.audioOutput=yes
           hw.keyboard=yes
           hw.mainKeys=no
           hw.lcd.density=440
@@ -198,21 +222,21 @@ jobs:
           echo "✅ VNC server ready on port 5900"
 
       # ====== START EMULATOR ======
-      - name: Start Android Emulator
+      - name: Start Android Emulator with PlayStore
         run: |
           export HOME=/mnt/android-home
           export ANDROID_AVD_HOME=/mnt/android-home/.android/avd
           export PATH=$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools:$PATH
           export DISPLAY=:99
           export QEMU_AUDIO_DRV=none
+          export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
           
-          echo "Starting emulator on DISPLAY=:99..."
+          echo "Starting emulator on DISPLAY=:99 with PlayStore..."
           nohup emulator -avd android_11 \
             -snapshot \
             -accel on \
             -no-metrics \
             -gpu on \
-            -no-audio \
             > /tmp/emulator.log 2>&1 &
           
           PID=$!
@@ -286,9 +310,10 @@ jobs:
           echo "  VNC Viewer → 159.195.6.61:5900"
           echo "  No authentication required"
           echo ""
-          echo "📂 Emulator Storage:"
-          echo "  Location: /mnt/android-home/.android/avd/android_11.avd"
-          echo "  Size: 40GB"
+          echo "📂 Emulator:"
+          echo "  Android: 11 (API 30)"
+          echo "  Edition: PlayStore ✓"
+          echo "  Storage: /mnt (40GB)"
           echo ""
           echo "========================================="
           echo ""
@@ -308,6 +333,7 @@ jobs:
           export PATH=$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools:$PATH
           export DISPLAY=:99
           export QEMU_AUDIO_DRV=none
+          export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
           
           RUNTIME_SECONDS=$(((${{ env.RUNTIME_MINUTES }}) * 60))
           HOURS=$(((${{ env.RUNTIME_MINUTES }}) / 60))
@@ -349,7 +375,6 @@ jobs:
                 -accel on \
                 -no-metrics \
                 -gpu on \
-                -no-audio \
                 > /tmp/emulator.log 2>&1 &
               sleep 60
             fi
