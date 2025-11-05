@@ -48,6 +48,21 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends x11vnc xvfb > /dev/null 2>&1
           echo "✅ VNC & X11 installed"
 
+      - name: Install Emulator Dependencies
+        run: |
+          echo "Installing audio and emulator dependencies..."
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            libpulse0 \
+            libpulse-dev \
+            libasound2 \
+            libxext6 \
+            libxrender1 \
+            libgl1-mesa-glx \
+            libglu1-mesa \
+            mesa-utils > /dev/null 2>&1
+          echo "✅ Emulator dependencies installed"
+
       - name: Install PlayStore System Image
         run: |
           export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH
@@ -166,7 +181,7 @@ jobs:
           
           PID=$!
           echo "Emulator PID: $PID"
-          sleep 40
+          sleep 50
           
           adb kill-server 2>/dev/null || true
           sleep 2
@@ -182,7 +197,7 @@ jobs:
             
             if ! kill -0 $PID 2>/dev/null; then
               echo "❌ Emulator crashed"
-              tail -20 /tmp/emulator.log
+              tail -50 /tmp/emulator.log
               exit 1
             fi
             
@@ -288,7 +303,7 @@ jobs:
                 -accel on \
                 > /tmp/emulator.log 2>&1 &
               
-              sleep 40
+              sleep 50
               adb kill-server 2>/dev/null || true
               sleep 2
               adb start-server
