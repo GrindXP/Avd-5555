@@ -1,185 +1,199 @@
-name: Android PlayStore Emulator with VNC on 5900
+name: Android PlayStore Emulator with VNC
 
 on:
-  push:
   workflow_dispatch:
     inputs:
       runtime_minutes:
-        description: 'Runtime duration (minutes)'
-        required: false
+        description: 'Total runtime for the session in minutes'
+        required: true
         default: '360'
+      vps_ip:
+        description: 'IP address of your FRP server'
+        required: true
+      frp_port:
+        description: 'Port of your FRP server (frps bind_port)'
+        required: true
+        default: '7000'
 
 jobs:
-  android-emulator:
+  android-emulator-session:
     runs-on: ubuntu-latest
 
     env:
+      # --- AVD & System Configuration ---
       AVD_NAME: android_30_playstore
-      RUNTIME_MINUTES: ${{ github.event.inputs.runtime_minutes || '360' }}
-      VPS_IP: 159.195.6.61
-      FRP_SERVER_PORT: 7000
+      SYSTEM_IMAGE: "system-images;android-30;google_apis_playstore;x86_64"
+      DEVICE_PROFILE: "pixel_6"
+      
+      # --- FRP Tunnel Configuration ---
       FRP_VERSION: 0.65.0
+      VPS_IP: ${{ github.event.inputs.vps_ip }}
+      FRP_SERVER_PORT: ${{ github.event.inputs.frp_port }}
+      
+      # --- Session & Display Configuration ---
+      RUNTIME_MINUTES: ${{ github.event.inputs.runtime_minutes }}
+      DISPLAY_PORT: ':99'
+      VNC_PORT: 5900
 
     steps:
-      # ====== SYSTEM SETUP ======
-      - name: Checkout repository
+      # ---------------------------------
+      # STEP 1: CHECKOUT & ENVIRONMENT SETUP
+      # ---------------------------------
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Enable KVM
+      # ---------------------------------
+      # STEP 2: ENABLE KVM ACCELERATION
+      # ---------------------------------
+      - name: Enable KVM Hardware Acceleration
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
           sudo chmod 666 /dev/kvm
-          echo "✅ KVM enabled"
+          echo "✅ KVM acceleration enabled."
 
-      # ====== STORAGE SETUP ======
-      - name: Prepare /mnt for AVD
+      # ---------------------------------
+      # STEP 3: PREPARE STORAGE & DISPLAY
+      # ---------------------------------
+      - name: Prepare /mnt Storage for AVD
         run: |
-          echo "=== Storage Check ==="
+          sudo mkdir -p /mnt/android-home
+          sudo chown -R $USER:$USER /mnt/android-home
           df -h /mnt
-          sudo mkdir -p /mnt/android-sdk-data /mnt/android-home
-          sudo chown -R runner:runner /mnt/android-sdk-data /mnt/android-home
-          echo "✅ /mnt ready"
+          echo "✅ /mnt storage prepared."
 
-      # ====== DISPLAY & VNC SETUP ======
-      - name: Install Display Packages
+      - name: Install VNC and Display Packages
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y x11vnc xvfb
-          echo "✅ Display packages installed"
+          sudo apt-get install -y x11vnc xvfb libpulse0
+          echo "✅ VNC and required libraries installed."
 
-      # ====== LIBPULSE AGGRESSIVE INSTALL ======
-      - name: Install libpulse
+      # ---------------------------------
+      # STEP 4: INSTALL ANDROID COMPONENTS
+      # ---------------------------------
+      - name: Install Emulator and System Image
         run: |
-          sudo apt-get install --reinstall -y libpulse0
-          ldconfig -p | grep libpulse && echo "✅ libpulse registered in ldconfig" || echo "⚠️ Warning: libpulse not in ldconfig"
+          sdkmanager "emulator" "platform-tools" "${{ env.SYSTEM_IMAGE }}"
+          echo "✅ Emulator and system image installed."
 
-      # ====== ANDROID SYSTEM IMAGE ======
-      - name: Install PlayStore System Image
-        run: |
-          echo "Installing emulator and PlayStore system image..."
-          sdkmanager "emulator" "platform-tools" "system-images;android-30;google_apis_playstore;x86_64"
-          echo "✅ PlayStore system image installed"
-
-      # ====== AVD CREATION ======
-      - name: Create PlayStore AVD on /mnt
+      # ---------------------------------
+      # STEP 5: CREATE AND CONFIGURE AVD
+      # ---------------------------------
+      - name: Create and Configure AVD on /mnt
         run: |
           export HOME=/mnt/android-home
           export ANDROID_AVD_HOME=/mnt/android-home/.android/avd
           
-          echo "Creating PlayStore AVD..."
-          echo "no" | avdmanager create avd \
-            --force \
-            --name "${{ env.AVD_NAME }}" \
-            --package "system-images;android-30;google_apis_playstore;x86_64" \
-            --device "pixel_6"
+          echo "Creating AVD: ${{ env.AVD_NAME }}"
+          echo "no" | avdmanager create avd --force --name "${{ env.AVD_NAME }}" --package "${{ env.SYSTEM_IMAGE }}" --device "${{ env.DEVICE_PROFILE }}"
           
           AVD_DIR="$ANDROID_AVD_HOME/${{ env.AVD_NAME }}.avd"
-          
-          echo "✅ AVD created"
-          
-          echo "hw.ramSize=12288" >> "$AVD_DIR/config.ini"
-          echo "disk.dataPartition.size=40960m" >> "$AVD_DIR/config.ini"
-          echo "hw.gpu.mode=auto" >> "$AVD_DIR/config.ini"
-          echo "hw.gpu.enabled=yes" >> "$AVD_DIR/config.ini"
-          echo "PlayStore.enabled=yes" >> "$AVD_DIR/config.ini"
-          
-          echo "✅ AVD configured (12GB RAM, 40GB storage, PlayStore)"
+          CONFIG_FILE="$AVD_DIR/config.ini"
 
-      # ====== FRP TUNNEL SETUP ======
-      - name: Download & Configure FRP
+          # --- Wait for config.ini to prevent race condition ---
+          echo "Waiting for AVD creation to finalize..."
+          for i in {1..30}; do
+            if [ -f "$CONFIG_FILE" ]; then
+              echo "✅ config.ini found. AVD is ready."
+              break
+            fi
+            sleep 1
+          done
+          
+          if [ ! -f "$CONFIG_FILE" ]; then
+            echo "❌ Error: AVD config.ini not found after 30 seconds. Aborting."
+            exit 1
+          fi
+
+          # --- Apply custom hardware settings ---
+          echo "Applying custom hardware configuration..."
+          {
+            echo "hw.ramSize=12288"
+            echo "disk.dataPartition.size=40960m"
+            echo "hw.gpu.mode=auto"
+            echo "hw.gpu.enabled=yes"
+            echo "PlayStore.enabled=yes"
+          } >> "$CONFIG_FILE"
+          
+          echo "✅ AVD configured successfully."
+
+      # ---------------------------------
+      # STEP 6: SETUP FRP TUNNEL
+      # ---------------------------------
+      - name: Download and Configure FRP
         run: |
           mkdir -p /tmp/frp
-          cd /tmp/frp
-          wget -q https://github.com/fatedier/frp/releases/download/v${{ env.FRP_VERSION }}/frp_${{ env.FRP_VERSION }}_linux_amd64.tar.gz
-          tar -xzf frp_${{ env.FRP_VERSION }}_linux_amd64.tar.gz
+          wget -qO- "https://github.com/fatedier/frp/releases/download/v${{ env.FRP_VERSION }}/frp_${{ env.FRP_VERSION }}_linux_amd64.tar.gz" | tar -xz -C /tmp/frp
+          mv /tmp/frp/frp_${{ env.FRP_VERSION }}_linux_amd64 /tmp/frp/bin
           
-          echo "Configuring FRP..."
           cat > /tmp/frp/frpc.toml << EOF
           serverAddr = "${{ env.VPS_IP }}"
           serverPort = ${{ env.FRP_SERVER_PORT }}
           
           [[proxies]]
-          name = "vnc-emulator-5900"
+          name = "vnc-${{ github.run_id }}"
           type = "tcp"
           localIP = "127.0.0.1"
-          localPort = 5900
-          remotePort = 5900
+          localPort = ${{ env.VNC_PORT }}
+          remotePort = ${{ env.VNC_PORT }}
           EOF
           
-          echo "✅ FRP ready"
+          echo "✅ FRP configured."
 
-      # ====== START DISPLAY & VNC ======
-      - name: Start Xvfb and VNC Server
+      # ---------------------------------
+      # STEP 7: START VIRTUAL DISPLAY & SERVICES
+      # ---------------------------------
+      - name: Start Virtual Display, VNC, and Emulator
         run: |
-          export DISPLAY=:99
-          
-          echo "Starting Xvfb on :99..."
-          Xvfb :99 -screen 0 1920x1080x24 &
-          sleep 5
-          
-          echo "Starting VNC server..."
-          x11vnc -display :99 -forever -nopw -rfbport 5900 -bg
-          sleep 3
-          
-          echo "✅ Display and VNC servers are running"
-
-      # ====== START EMULATOR ======
-      - name: Start Android Emulator
-        id: start_emulator
-        run: |
+          # --- Set environment variables for this step ---
           export HOME=/mnt/android-home
           export ANDROID_AVD_HOME=/mnt/android-home/.android/avd
-          export DISPLAY=:99
-          export QEMU_AUDIO_DRV=none
-          export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
+          export DISPLAY=${{ env.DISPLAY_PORT }}
           
-          echo "Starting emulator..."
+          # --- Start Xvfb (Virtual Framebuffer) ---
+          Xvfb $DISPLAY -screen 0 1920x1080x24 &
+          sleep 5
           
-          emulator -avd "${{ env.AVD_NAME }}" \
-            -no-snapshot \
-            -no-audio \
-            -no-boot-anim \
-            -gpu auto &
+          # --- Start VNC Server ---
+          x11vnc -display $DISPLAY -forever -nopw -rfbport ${{ env.VNC_PORT }} -bg
+          sleep 3
+
+          # --- Start the Android Emulator ---
+          emulator -avd "${{ env.AVD_NAME }}" -no-snapshot -no-audio -no-boot-anim -gpu auto &
           
-          echo "Waiting for emulator to boot..."
-          timeout 300 adb wait-for-device
+          # --- Wait for Emulator to Boot ---
+          echo "Waiting for emulator to boot completely..."
+          timeout 300 adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done; input keyevent 82'
           
-          if adb shell getprop sys.boot_completed | grep -q "1"; then
-            echo "✅ Emulator booted successfully"
+          if adb get-state | grep -q "device"; then
+            echo "✅ Emulator booted and is online."
           else
-            echo "❌ Emulator failed to boot"
+            echo "❌ Emulator failed to come online after 5 minutes."
             exit 1
           fi
 
-      # ====== START FRP TUNNEL ======
-      - name: Start FRP Tunnel to VPS
+      # ---------------------------------
+      # STEP 8: START FRP TUNNEL
+      # ---------------------------------
+      - name: Start FRP Tunnel to Expose VNC
         run: |
-          cd /tmp/frp/frp_${{ env.FRP_VERSION }}_linux_amd64
-          ./frpc -c /tmp/frp/frpc.toml &
+          /tmp/frp/bin/frpc -c /tmp/frp/frpc.toml &
           sleep 5
           if ! pgrep frpc > /dev/null; then
-            echo "❌ FRP failed"
+            echo "❌ FRP tunnel failed to start. Check server details and firewall."
             exit 1
           fi
-          echo "✅ FRP tunnel active"
+          echo "✅ FRP tunnel is active. VNC is accessible at ${{ env.VPS_IP }}:${{ env.VNC_PORT }}"
 
-      # ====== VERIFY SETUP & SSH ======
-      - name: Verify and Access
-        run: |
-          echo "========================================="
-          echo "✅ SETUP COMPLETE - READY FOR USE"
-          echo "VNC Viewer → ${{ env.VPS_IP }}:5900"
-          echo "========================================="
-          adb devices
-          
-      - name: Keep Workflow Alive with tmate
+      # ---------------------------------
+      # STEP 9: KEEP SESSION ALIVE
+      # ---------------------------------
+      - name: Keep Workflow Alive via tmate
         uses: mxschmitt/action-tmate@v3
         with:
           limit-access-to-actor: false
           timeout-minutes: ${{ env.RUNTIME_MINUTES }}
-
