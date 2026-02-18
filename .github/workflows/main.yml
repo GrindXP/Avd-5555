@@ -25,7 +25,7 @@ jobs:
 
       - name: Setup /mnt Storage
         run: |
-          sudo mkdir -p /mnt/avd
+          sudo mkdir -p /mnt/avd/.android/avd
           sudo chown -R runner:runner /mnt/avd
 
       - name: Install System Image
@@ -42,12 +42,24 @@ jobs:
             -k "system-images;android-30;google_apis;x86_64" \
             -d "pixel_5"
           
-          cat >> /mnt/avd/.android/avd/android11.avd/config.ini << EOF
+          sleep 3
+          
+          AVD_DIR="/mnt/avd/.android/avd/android11.avd"
+          
+          if [ ! -d "$AVD_DIR" ]; then
+            echo "❌ AVD directory not created"
+            ls -la /mnt/avd/.android/avd/
+            exit 1
+          fi
+          
+          cat >> "$AVD_DIR/config.ini" << EOF
           hw.ramSize=8192
           disk.dataPartition.size=8192M
           hw.gpu.mode=swiftshader_indirect
           hw.gpu.enabled=yes
           EOF
+          
+          echo "✅ AVD configured"
 
       - name: Start AVD
         run: |
