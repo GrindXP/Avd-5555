@@ -32,7 +32,7 @@ jobs:
         run: |
           sdkmanager "system-images;android-30;google_apis;x86_64"
 
-      - name: Create AVD on /mnt
+      - name: Create AVD
         run: |
           export HOME=/mnt/avd
           export ANDROID_AVD_HOME=/mnt/avd/.android/avd
@@ -44,9 +44,7 @@ jobs:
           
           sleep 3
           
-          AVD_DIR="/mnt/avd/.android/avd/android11.avd"
-          
-          cat >> "$AVD_DIR/config.ini" << EOF
+          cat >> "/mnt/avd/.android/avd/android11.avd/config.ini" << EOF
           hw.ramSize=8192
           disk.dataPartition.size=8192M
           hw.gpu.mode=swiftshader_indirect
@@ -75,44 +73,60 @@ jobs:
           adb shell cmd lock_settings set-pin 1234
           echo "✅ Lock enabled"
 
-      - name: Enable ADB TCP + Firewall
-        run: |
-          adb tcpip 5555
-          sleep 3
-          
-          # Open firewall for ADB
-          sudo ufw allow 5555/tcp
-          sudo ufw --force enable
-          
-          # Test local connection
-          adb connect 127.0.0.1:5555
-          adb devices
-          
-          echo "✅ ADB TCP on port 5555 + firewall open"
-
-      - name: Tailscale
+      - name: Tailscale (BEFORE ADB TCP)
         run: |
           curl -fsSL https://tailscale.com/install.sh | sh
-          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=github-avd
+          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }}
           sleep 5
           TS_IP=$(tailscale ip -4)
           echo "TAILSCALE_IP=$TS_IP" >> $GITHUB_ENV
+          echo "✅ Tailscale: $TS_IP"
+
+      - name: Setup ADB TCP on Tailscale IP
+        run: |
+          # Enable TCP mode
+          adb tcpip 5555
+          sleep 3
           
+          # Restart ADB server to listen on ALL interfaces
+          adb kill-server
+          adb -a -P 5037 fork-server server &
+          sleep 3
+          
+          # Connect locally first
+          adb connect 127.0.0.1:5555
+          sleep 2
+          
+          # Open firewall
+          sudo ufw allow 5555/tcp
+          sudo ufw --force enable
+          
+          echo ""
+          echo "=== Listening ports ==="
+          sudo netstat -tulpn | grep 5555
+          
+          echo ""
+          echo "✅ ADB accessible on all interfaces"
+
+      - name: Connection Info
+        run: |
+          echo ""
           echo "╔════════════════════════════════╗"
           echo "║  📱 AVD Ready (8GB RAM)        ║"
           echo "╠════════════════════════════════╣"
-          echo "║  IP: $TS_IP:5555              ║"
-          echo "║  RAM: 8GB                     ║"
-          echo "║  Lock PIN: 1234               ║"
+          echo "║  🌐 IP: $TAILSCALE_IP:5555    ║"
+          echo "║  💾 RAM: 8GB                  ║"
+          echo "║  🔐 PIN: 1234                 ║"
           echo "╚════════════════════════════════╝"
           echo ""
-          echo "🔥 COPY THIS EXACT COMMAND:"
-          echo "   adb connect $TS_IP:5555"
-          echo "   scrcpy --serial $TS_IP:5555"
+          echo "🔥 Connect from Windows:"
+          echo "   adb connect $TAILSCALE_IP:5555"
+          echo "   scrcpy --serial $TAILSCALE_IP:5555"
 
       - name: Keep Alive
         run: |
           while true; do
+            adb devices | grep -q "5555" || adb connect 127.0.0.1:5555
             echo "[$(date '+%H:%M')] ✅ $TAILSCALE_IP:5555"
             sleep 120
           done
