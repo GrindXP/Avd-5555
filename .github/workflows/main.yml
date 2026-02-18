@@ -46,20 +46,12 @@ jobs:
           
           AVD_DIR="/mnt/avd/.android/avd/android11.avd"
           
-          if [ ! -d "$AVD_DIR" ]; then
-            echo "❌ AVD directory not created"
-            ls -la /mnt/avd/.android/avd/
-            exit 1
-          fi
-          
           cat >> "$AVD_DIR/config.ini" << EOF
           hw.ramSize=8192
           disk.dataPartition.size=8192M
           hw.gpu.mode=swiftshader_indirect
           hw.gpu.enabled=yes
           EOF
-          
-          echo "✅ AVD configured"
 
       - name: Start AVD
         run: |
@@ -76,24 +68,36 @@ jobs:
             > /tmp/emu.log 2>&1 &
           
           adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done'
-          echo "✅ AVD booted with 8GB RAM"
+          echo "✅ AVD booted"
 
       - name: Enable Native Lock
         run: |
           adb shell cmd lock_settings set-pin 1234
-          echo "✅ Lock screen enabled"
+          echo "✅ Lock enabled"
 
-      - name: Enable ADB TCP
+      - name: Enable ADB TCP + Firewall
         run: |
           adb tcpip 5555
-          sleep 2
+          sleep 3
+          
+          # Open firewall for ADB
+          sudo ufw allow 5555/tcp
+          sudo ufw --force enable
+          
+          # Test local connection
+          adb connect 127.0.0.1:5555
+          adb devices
+          
+          echo "✅ ADB TCP on port 5555 + firewall open"
 
       - name: Tailscale
         run: |
           curl -fsSL https://tailscale.com/install.sh | sh
-          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }}
+          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=github-avd
+          sleep 5
           TS_IP=$(tailscale ip -4)
           echo "TAILSCALE_IP=$TS_IP" >> $GITHUB_ENV
+          
           echo "╔════════════════════════════════╗"
           echo "║  📱 AVD Ready (8GB RAM)        ║"
           echo "╠════════════════════════════════╣"
@@ -102,13 +106,13 @@ jobs:
           echo "║  Lock PIN: 1234               ║"
           echo "╚════════════════════════════════╝"
           echo ""
-          echo "Connect from your PC:"
-          echo "  adb connect $TS_IP:5555"
-          echo "  scrcpy --serial $TS_IP:5555"
+          echo "🔥 COPY THIS EXACT COMMAND:"
+          echo "   adb connect $TS_IP:5555"
+          echo "   scrcpy --serial $TS_IP:5555"
 
       - name: Keep Alive
         run: |
           while true; do
-            echo "[$(date '+%H:%M')] ✅ $TAILSCALE_IP:5555 | 8GB RAM"
+            echo "[$(date '+%H:%M')] ✅ $TAILSCALE_IP:5555"
             sleep 120
           done
