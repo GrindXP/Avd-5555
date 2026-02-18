@@ -73,12 +73,44 @@ jobs:
           adb shell cmd lock_settings set-pin 1234
           echo "✅ Lock enabled"
 
-      - name: Enable ADB TCP
+      - name: Enable ADB TCP (with retry)
         run: |
-          adb tcpip 5555
+          # Kill and restart ADB daemon
+          adb kill-server
+          sleep 2
+          adb start-server
           sleep 3
+          
+          # Wait for device
+          adb wait-for-device
+          sleep 2
+          
+          # Retry loop for tcpip command
+          for i in {1..5}; do
+            echo "Attempt $i: Enabling TCP mode..."
+            if adb tcpip 5555; then
+              echo "✅ TCP mode enabled"
+              break
+            else
+              echo "Failed, retrying in 3s..."
+              adb kill-server
+              sleep 2
+              adb start-server
+              sleep 3
+              adb wait-for-device
+              sleep 2
+            fi
+            
+            if [ $i -eq 5 ]; then
+              echo "❌ Failed after 5 attempts"
+              exit 1
+            fi
+          done
+          
+          sleep 5
           adb connect 127.0.0.1:5555
-          echo "✅ ADB TCP enabled"
+          adb devices -l
+          echo "✅ ADB TCP ready"
 
       - name: Tailscale
         run: |
@@ -131,6 +163,12 @@ jobs:
             if ! pgrep -f "socat.*5555" > /dev/null; then
               echo "Restarting socat..."
               nohup socat TCP-LISTEN:5555,fork,bind=$TAILSCALE_IP TCP:127.0.0.1:5555 > /tmp/socat.log 2>&1 &
+            fi
+            
+            # Check ADB connection
+            if ! adb devices | grep -q "127.0.0.1:5555"; then
+              echo "Reconnecting ADB..."
+              adb connect 127.0.0.1:5555
             fi
             
             echo "[$(date '+%H:%M')] ✅ $TAILSCALE_IP:5555"
