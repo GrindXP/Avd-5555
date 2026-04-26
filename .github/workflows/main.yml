@@ -1,176 +1,86 @@
-name: Android AVD + Tailscale (scrcpy)
-
+name: Android 16 Remote Emulator
 on:
   workflow_dispatch:
 
 jobs:
-  avd:
-    runs-on: ubuntu-22.04
+  android-remote:
+    runs-on: macos-latest
+    timeout-minutes: 350
 
     steps:
-      - name: Setup JDK 17
+      - name: Connect Tailscale
+        uses: tailscale/github-action@v3
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+          hostname: github-android-runner
+
+      - name: Enable SSH Access
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PUBLIC_KEY }}" >> ~/.ssh/authorized_keys
+          chmod 700 ~/.ssh
+          chmod 600 ~/.ssh/authorized_keys
+          sudo launchctl unload /System/Library/LaunchDaemons/ssh.plist 2>/dev/null || true
+          sudo launchctl load -w /System/Library/LaunchDaemons/ssh.plist
+          sleep 2
+          echo "SSH ready!"
+
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
           java-version: '17'
+          distribution: 'temurin'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Enable KVM
+      - name: Prepare Stream Server Files
         run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
+          mkdir -p /tmp/stream
 
-      - name: Setup /mnt Storage
-        run: |
-          sudo mkdir -p /mnt/avd/.android/avd
-          sudo chown -R runner:runner /mnt/avd
+          # server.py as base64 (no << YAML conflict)
+          echo "aW1wb3J0IGh0dHAuc2VydmVyLCB1cmxsaWIucGFyc2UsIHN1YnByb2Nlc3MsIG9zLCBqc29uCgpjbGFzcyBIKGh0dHAuc2VydmVyLlNpbXBsZUhUVFBSZXF1ZXN0SGFuZGxlcik6CiAgICBkZWYgZG9fR0VUKHNlbGYpOgogICAgICAgIGlmIHNlbGYucGF0aC5zdGFydHN3aXRoKCcvdGFwJyk6CiAgICAgICAgICAgIHEgPSB1cmxsaWIucGFyc2UucGFyc2VfcXModXJsbGliLnBhcnNlLnVybHBhcnNlKHNlbGYucGF0aCkucXVlcnkpCiAgICAgICAgICAgIHggPSBxLmdldCgneCcsIFsnMCddKVswXQogICAgICAgICAgICB5ID0gcS5nZXQoJ3knLCBbJzAnXSlbMF0KICAgICAgICAgICAgciA9IHN1YnByb2Nlc3MucnVuKFsnYWRiJywgJ3NoZWxsJywgJ2lucHV0JywgJ3RhcCcsIHgsIHldLCBjYXB0dXJlX291dHB1dD1UcnVlLCB0ZXh0PVRydWUpCiAgICAgICAgICAgIHNlbGYuc2VuZF9yZXNwb25zZSgyMDApCiAgICAgICAgICAgIHNlbGYuc2VuZF9oZWFkZXIoJ0NvbnRlbnQtVHlwZScsICdhcHBsaWNhdGlvbi9qc29uJykKICAgICAgICAgICAgc2VsZi5lbmRfaGVhZGVycygpCiAgICAgICAgICAgIHNlbGYud2ZpbGUud3JpdGUoanNvbi5kdW1wcyh7J3gnOiB4LCAneSc6IHksICdvayc6IHIucmV0dXJuY29kZSA9PSAwfSkuZW5jb2RlKCkpCiAgICAgICAgZWxpZiBzZWxmLnBhdGguc3RhcnRzd2l0aCgnL3N3aXBlJyk6CiAgICAgICAgICAgIHEgPSB1cmxsaWIucGFyc2UucGFyc2VfcXModXJsbGliLnBhcnNlLnVybHBhcnNlKHNlbGYucGF0aCkucXVlcnkpCiAgICAgICAgICAgIHgxID0gcS5nZXQoJ3gxJywgWycwJ10pWzBdOyB5MSA9IHEuZ2V0KCd5MScsIFsnMCddKVswXQogICAgICAgICAgICB4MiA9IHEuZ2V0KCd4MicsIFsnMCddKVswXTsgeTIgPSBxLmdldCgneTInLCBbJzAnXSlbMF0KICAgICAgICAgICAgc3VicHJvY2Vzcy5ydW4oWydhZGInLCAnc2hlbGwnLCAnaW5wdXQnLCAnc3dpcGUnLCB4MSwgeTEsIHgyLCB5MiwgJzMwMCddLCBjYXB0dXJlX291dHB1dD1UcnVlKQogICAgICAgICAgICBzZWxmLnNlbmRfcmVzcG9uc2UoMjAwKTsgc2VsZi5lbmRfaGVhZGVycygpCiAgICAgICAgZWxpZiBzZWxmLnBhdGguc3RhcnRzd2l0aCgnL2tleScpOgogICAgICAgICAgICBxID0gdXJsbGliLnBhcnNlLnBhcnNlX3FzKHVybGxpYi5wYXJzZS51cmxwYXJzZShzZWxmLnBhdGgpLnF1ZXJ5KQogICAgICAgICAgICBrID0gcS5nZXQoJ2snLCBbJzMnXSlbMF0KICAgICAgICAgICAgc3VicHJvY2Vzcy5ydW4oWydhZGInLCAnc2hlbGwnLCAnaW5wdXQnLCAna2V5ZXZlbnQnLCBrXSwgY2FwdHVyZV9vdXRwdXQ9VHJ1ZSkKICAgICAgICAgICAgc2VsZi5zZW5kX3Jlc3BvbnNlKDIwMCk7IHNlbGYuZW5kX2hlYWRlcnMoKQogICAgICAgIGVsaWYgc2VsZi5wYXRoLnN0YXJ0c3dpdGgoJy90ZXh0Jyk6CiAgICAgICAgICAgIHEgPSB1cmxsaWIucGFyc2UucGFyc2VfcXModXJsbGliLnBhcnNlLnVybHBhcnNlKHNlbGYucGF0aCkucXVlcnkpCiAgICAgICAgICAgIHQgPSBxLmdldCgndicsIFsnJ10pWzBdLnJlcGxhY2UoJyAnLCAnJXMnKQogICAgICAgICAgICBzdWJwcm9jZXNzLnJ1bihbJ2FkYicsICdzaGVsbCcsICdpbnB1dCcsICd0ZXh0JywgdF0sIGNhcHR1cmVfb3V0cHV0PVRydWUpCiAgICAgICAgICAgIHNlbGYuc2VuZF9yZXNwb25zZSgyMDApOyBzZWxmLmVuZF9oZWFkZXJzKCkKICAgICAgICBlbHNlOgogICAgICAgICAgICBzdXBlcigpLmRvX0dFVCgpCiAgICBkZWYgbG9nX21lc3NhZ2Uoc2VsZiwgKmEpOiBwYXNzCgpvcy5jaGRpcignL3RtcC9zdHJlYW0nKQpodHRwLnNlcnZlci5IVFRQU2VydmVyKCgnJywgOTEwMCksIEgpLnNlcnZlX2ZvcmV2ZXIoKQo=" | base64 -d > /tmp/stream/server.py
 
-      - name: Install System Image
-        run: |
-          sdkmanager "system-images;android-30;google_apis;x86_64"
+          # index.html as base64
+          echo "PCFET0NUWVBFIGh0bWw+CjxodG1sPgo8aGVhZD4KPHRpdGxlPkFuZHJvaWQgMTYgLSBSZW1vdGU8L3RpdGxlPgo8bWV0YSBuYW1lPSJ2aWV3cG9ydCIgY29udGVudD0id2lkdGg9ZGV2aWNlLXdpZHRoIj4KPHN0eWxlPgogIGJvZHl7bWFyZ2luOjA7YmFja2dyb3VuZDojMTExO2Rpc3BsYXk6ZmxleDtmbGV4LWRpcmVjdGlvbjpjb2x1bW47YWxpZ24taXRlbXM6Y2VudGVyO2NvbG9yOiNmZmY7Zm9udC1mYW1pbHk6bW9ub3NwYWNlfQogICNiYXJ7ZGlzcGxheTpmbGV4O2dhcDo4cHg7cGFkZGluZzo4cHg7YmFja2dyb3VuZDojMjIyO3dpZHRoOjEwMCU7Ym94LXNpemluZzpib3JkZXItYm94O2FsaWduLWl0ZW1zOmNlbnRlcjtmbGV4LXdyYXA6d3JhcH0KICBidXR0b257YmFja2dyb3VuZDojMzMzO2NvbG9yOiNmZmY7Ym9yZGVyOjFweCBzb2xpZCAjNTU1O3BhZGRpbmc6NnB4IDEycHg7Y3Vyc29yOnBvaW50ZXI7Ym9yZGVyLXJhZGl1czo0cHh9CiAgYnV0dG9uOmhvdmVye2JhY2tncm91bmQ6IzU1NX0KICAjc2Nye21heC1oZWlnaHQ6OTB2aDtjdXJzb3I6Y3Jvc3NoYWlyO2Rpc3BsYXk6YmxvY2s7Ym9yZGVyOjJweCBzb2xpZCAjMzMzO21hcmdpbjo4cHggYXV0b30KICAjc3RhdHVze2NvbG9yOiMwZjA7cGFkZGluZzo0cHggOHB4O2ZvbnQtc2l6ZToxMnB4fQogICN0ZXh0Ym94e2JhY2tncm91bmQ6IzMzMztjb2xvcjojZmZmO2JvcmRlcjoxcHggc29saWQgIzU1NTtwYWRkaW5nOjZweDtib3JkZXItcmFkaXVzOjRweDt3aWR0aDoxNjBweH0KPC9zdHlsZT4KPC9oZWFkPgo8Ym9keT4KPGRpdiBpZD0iYmFyIj4KICA8c3BhbiBpZD0ic3RhdHVzIj5MaXZlIEFuZHJvaWQgMTY8L3NwYW4+CiAgPGJ1dHRvbiBvbmNsaWNrPSJrZXkoMykiPkhvbWU8L2J1dHRvbj4KICA8YnV0dG9uIG9uY2xpY2s9ImtleSg0KSI+QmFjazwvYnV0dG9uPgogIDxidXR0b24gb25jbGljaz0ia2V5KDE4NykiPkFwcHM8L2J1dHRvbj4KICA8YnV0dG9uIG9uY2xpY2s9ImtleSgyNikiPlBvd2VyPC9idXR0b24+CiAgPGlucHV0IGlkPSJ0ZXh0Ym94IiB0eXBlPSJ0ZXh0IiBwbGFjZWhvbGRlcj0iVHlwZSB0ZXh0Li4uIiBvbmtleWRvd249ImlmKGV2ZW50LmtleT09J0VudGVyJylzZW5kVGV4dCgpIi8+CiAgPGJ1dHRvbiBvbmNsaWNrPSJzZW5kVGV4dCgpIj5TZW5kPC9idXR0b24+CjwvZGl2Pgo8aW1nIGlkPSJzY3IiIHNyYz0ic2NyZWVuLnBuZyIvPgo8c2NyaXB0Pgpjb25zdCBpbWc9ZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ3NjcicpOwpjb25zdCBzdD1kb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnc3RhdHVzJyk7CnNldEludGVydmFsKCgpPT57aW1nLnNyYz0nc2NyZWVuLnBuZz90PScrRGF0ZS5ub3coKTt9LDgwMCk7CmxldCBkcmFnZ2luZz1mYWxzZSxzdGFydFgsc3RhcnRZOwppbWcuYWRkRXZlbnRMaXN0ZW5lcignbW91c2Vkb3duJyxlPT57CiAgZHJhZ2dpbmc9ZmFsc2U7CiAgY29uc3Qgcj1pbWcuZ2V0Qm91bmRpbmdDbGllbnRSZWN0KCk7CiAgc3RhcnRYPU1hdGgucm91bmQoKGUuY2xpZW50WC1yLmxlZnQpKjEwODAvci53aWR0aCk7CiAgc3RhcnRZPU1hdGgucm91bmQoKGUuY2xpZW50WS1yLnRvcCkqMjQwMC9yLmhlaWdodCk7Cn0pOwppbWcuYWRkRXZlbnRMaXN0ZW5lcignbW91c2Vtb3ZlJyxlPT57aWYoZS5idXR0b25zPT09MSlkcmFnZ2luZz10cnVlO30pOwppbWcuYWRkRXZlbnRMaXN0ZW5lcignbW91c2V1cCcsYXN5bmMgZT0+ewogIGNvbnN0IHI9aW1nLmdldEJvdW5kaW5nQ2xpZW50UmVjdCgpOwogIGNvbnN0IHg9TWF0aC5yb3VuZCgoZS5jbGllbnRYLXIubGVmdCkqMTA4MC9yLndpZHRoKTsKICBjb25zdCB5PU1hdGgucm91bmQoKGUuY2xpZW50WS1yLnRvcCkqMjQwMC9yLmhlaWdodCk7CiAgaWYoZHJhZ2dpbmcpe2F3YWl0IGZldGNoKCcvc3dpcGU/eDE9JytzdGFydFgrJyZ5MT0nK3N0YXJ0WSsnJngyPScreCsnJnkyPScreSk7c3QudGV4dENvbnRlbnQ9J1N3aXBlZCc7fQogIGVsc2V7YXdhaXQgZmV0Y2goJy90YXA/eD0nK3grJyZ5PScreSk7c3QudGV4dENvbnRlbnQ9J1RhcHBlZCAnK3grJywnK3k7fQogIGRyYWdnaW5nPWZhbHNlOwp9KTsKYXN5bmMgZnVuY3Rpb24ga2V5KGspe2F3YWl0IGZldGNoKCcva2V5P2s9JytrKTtzdC50ZXh0Q29udGVudD0nS2V5OiAnK2s7fQphc3luYyBmdW5jdGlvbiBzZW5kVGV4dCgpewogIGNvbnN0IHY9ZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ3RleHRib3gnKS52YWx1ZTsKICBhd2FpdCBmZXRjaCgnL3RleHQ/dj0nK2VuY29kZVVSSUNvbXBvbmVudCh2KSk7CiAgZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ3RleHRib3gnKS52YWx1ZT0nJzsKICBzdC50ZXh0Q29udGVudD0nVHlwZWQ6ICcrdjsKfQo8L3NjcmlwdD4KPC9ib2R5Pgo8L2h0bWw+" | base64 -d > /tmp/stream/index.html
 
-      - name: Create AVD
-        run: |
-          export HOME=/mnt/avd
-          export ANDROID_AVD_HOME=/mnt/avd/.android/avd
-          
-          echo no | avdmanager create avd \
-            -n android11 \
-            -k "system-images;android-30;google_apis;x86_64" \
-            -d "pixel_5"
-          
-          sleep 3
-          
-          cat >> "/mnt/avd/.android/avd/android11.avd/config.ini" << EOF
-          hw.ramSize=8192
-          disk.dataPartition.size=8192M
-          hw.gpu.mode=swiftshader_indirect
-          hw.gpu.enabled=yes
-          EOF
+          echo "Files ready!"
 
-      - name: Start AVD
-        run: |
-          export HOME=/mnt/avd
-          export ANDROID_AVD_HOME=/mnt/avd/.android/avd
-          
-          nohup $ANDROID_HOME/emulator/emulator \
-            -avd android11 \
-            -no-window \
-            -gpu swiftshader_indirect \
-            -no-audio \
-            -no-boot-anim \
-            -memory 8192 \
-            > /tmp/emu.log 2>&1 &
-          
-          adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done'
-          echo "✅ AVD booted"
+      - name: Start Android 16 Emulator + Stream
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: google_apis
+          arch: arm64-v8a
+          profile: pixel_6
+          ram-size: 4096M
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          disable-animations: true
+          script: |
+            echo "Emulator booted!"
+            adb shell input keyevent 82
 
-      - name: Enable Native Lock
-        run: |
-          adb shell cmd lock_settings set-pin 1234
-          echo "✅ Lock enabled"
+            # Start screenshot loop
+            while true; do
+              adb exec-out screencap -p > /tmp/stream/screen.png 2>/dev/null
+              sleep 0.8
+            done &
 
-      - name: Enable ADB TCP (with retry)
-        run: |
-          # Kill and restart ADB daemon
-          adb kill-server
-          sleep 2
-          adb start-server
-          sleep 3
-          
-          # Wait for device
-          adb wait-for-device
-          sleep 2
-          
-          # Retry loop for tcpip command
-          for i in {1..5}; do
-            echo "Attempt $i: Enabling TCP mode..."
-            if adb tcpip 5555; then
-              echo "✅ TCP mode enabled"
-              break
-            else
-              echo "Failed, retrying in 3s..."
-              adb kill-server
-              sleep 2
-              adb start-server
-              sleep 3
-              adb wait-for-device
-              sleep 2
-            fi
-            
-            if [ $i -eq 5 ]; then
-              echo "❌ Failed after 5 attempts"
-              exit 1
-            fi
-          done
-          
-          sleep 5
-          adb connect 127.0.0.1:5555
-          adb devices -l
-          echo "✅ ADB TCP ready"
+            # Start Python server
+            python3 /tmp/stream/server.py &
+            sleep 3
+            echo "Stream ready on port 9100"
 
-      - name: Tailscale
-        run: |
-          curl -fsSL https://tailscale.com/install.sh | sh
-          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }}
-          sleep 5
-          TS_IP=$(tailscale ip -4)
-          echo "TAILSCALE_IP=$TS_IP" >> $GITHUB_ENV
-          echo "✅ Tailscale: $TS_IP"
+            # Keep alive
+            sleep 20000
 
-      - name: Setup Port Forward (socat)
+      - name: Disable Sleep
         run: |
-          sudo apt-get install -y socat
-          
-          # Forward Tailscale IP:5555 → localhost:5555
-          nohup socat TCP-LISTEN:5555,fork,bind=$TAILSCALE_IP TCP:127.0.0.1:5555 > /tmp/socat.log 2>&1 &
-          
-          sleep 3
-          
-          # Open firewall
-          sudo ufw allow 5555/tcp
-          sudo ufw --force enable
-          
-          echo ""
-          echo "=== Port forwarding active ==="
-          sudo netstat -tulpn | grep 5555
-          
-          echo ""
-          echo "✅ Port 5555 forwarded from $TAILSCALE_IP to localhost"
+          sudo pmset -a sleep 0 displaysleep 0 disksleep 0
+          sudo caffeinate -dimsu &
 
-      - name: Connection Info
+      - name: Print Connection Info
         run: |
-          echo ""
-          echo "╔════════════════════════════════╗"
-          echo "║  📱 AVD Ready (8GB RAM)        ║"
-          echo "╠════════════════════════════════╣"
-          echo "║  🌐 IP: $TAILSCALE_IP:5555    ║"
-          echo "║  💾 RAM: 8GB                  ║"
-          echo "║  🔐 PIN: 1234                 ║"
-          echo "╚════════════════════════════════╝"
-          echo ""
-          echo "🔥 Connect from Windows:"
-          echo "   adb connect $TAILSCALE_IP:5555"
-          echo "   scrcpy --serial $TAILSCALE_IP:5555"
-
-      - name: Keep Alive
-        run: |
-          while true; do
-            # Check socat is running
-            if ! pgrep -f "socat.*5555" > /dev/null; then
-              echo "Restarting socat..."
-              nohup socat TCP-LISTEN:5555,fork,bind=$TAILSCALE_IP TCP:127.0.0.1:5555 > /tmp/socat.log 2>&1 &
-            fi
-            
-            # Check ADB connection
-            if ! adb devices | grep -q "127.0.0.1:5555"; then
-              echo "Reconnecting ADB..."
-              adb connect 127.0.0.1:5555
-            fi
-            
-            echo "[$(date '+%H:%M')] ✅ $TAILSCALE_IP:5555"
-            sleep 120
-          done
+          TAILSCALE_IP=$(tailscale ip -4)
+          echo "================================"
+          echo "  SSH: ssh runner@${TAILSCALE_IP}"
+          echo "  Tunnel: ssh -i C:/Users/DELL/.ssh/sshgithubmac -L 9100:localhost:9100 -N runner@${TAILSCALE_IP}"
+          echo "  Browser: http://localhost:9100"
+          echo "================================"
