@@ -4,7 +4,7 @@ on:
 
 jobs:
   android-remote:
-    runs-on: macos-13
+    runs-on: ubuntu-latest
     timeout-minutes: 350
 
     steps:
@@ -18,11 +18,16 @@ jobs:
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PUBLIC_KEY }}" >> ~/.ssh/authorized_keys
-          chmod 700 ~/.ssh
-          chmod 600 ~/.ssh/authorized_keys
-          sudo launchctl unload /System/Library/LaunchDaemons/ssh.plist 2>/dev/null || true
-          sudo launchctl load -w /System/Library/LaunchDaemons/ssh.plist
+          chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys
+          sudo systemctl enable ssh
+          sudo systemctl start ssh
           echo "SSH ready!"
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -37,7 +42,7 @@ jobs:
           echo "PCFET0NUWVBFIGh0bWw+CjxodG1sPgo8aGVhZD4KPHRpdGxlPkFuZHJvaWQgMTQgLSBSZW1vdGU8L3RpdGxlPgo8bWV0YSBuYW1lPSJ2aWV3cG9ydCIgY29udGVudD0id2lkdGg9ZGV2aWNlLXdpZHRoIj4KPHN0eWxlPgogIGJvZHl7bWFyZ2luOjA7YmFja2dyb3VuZDojMTExO2Rpc3BsYXk6ZmxleDtmbGV4LWRpcmVjdGlvbjpjb2x1bW47YWxpZ24taXRlbXM6Y2VudGVyO2NvbG9yOiNmZmY7Zm9udC1mYW1pbHk6c2Fucy1zZXJpZn0KICAjYmFye2Rpc3BsYXk6ZmxleDtnYXA6NnB4O3BhZGRpbmc6OHB4O2JhY2tncm91bmQ6IzIyMjt3aWR0aDoxMDAlO2JveC1zaXppbmc6Ym9yZGVyLWJveDtmbGV4LXdyYXA6d3JhcDthbGlnbi1pdGVtczpjZW50ZXJ9CiAgYnV0dG9ue2JhY2tncm91bmQ6IzMzMztjb2xvcjojZmZmO2JvcmRlcjoxcHggc29saWQgIzU1NTtwYWRkaW5nOjZweCAxMnB4O2N1cnNvcjpwb2ludGVyO2JvcmRlci1yYWRpdXM6NHB4fQogIGJ1dHRvbjpob3ZlcntiYWNrZ3JvdW5kOiM0NDR9CiAgI3Njcnttax1oZWlnaHQ6OTB2aDtjdXJzb3I6Y3Jvc3NoYWlyO2Rpc3BsYXk6YmxvY2s7Ym9yZGVyOjJweCBzb2xpZCAjMzMzO21hcmdpbjo4cHggYXV0b30KICAjc3R7Y29sb3I6IzBmMDtmb250LXNpemU6MTJweDtwYWRkaW5nOjAgOHB4fQogICN0YntpbnB1dH1iYWNrZ3JvdW5kOiMzMzM7Y29sb3I6I2ZmZjtib3JkZXI6MXB4IHNvbGlkICM1NTU7cGFkZGluZzo1cHg7Ym9yZGVyLXJhZGl1czo0cHg7d2lkdGg6MTUwcHh9Cjwvc3R5bGU+CjwvaGVhZD4KPGJvZHk+CjxkaXYgaWQ9ImJhciI+CiAgPHNwYW4gaWQ9InN0Ij5MaXZlIEFuZHJvaWQgMTQ8L3NwYW4+CiAgPGJ1dHRvbiBvbmNsaWNrPSJrKDMpIj5Ib21lPC9idXR0b24+CiAgPGJ1dHRvbiBvbmNsaWNrPSJrKDQpIj5CYWNrPC9idXR0b24+CiAgPGJ1dHRvbiBvbmNsaWNrPSJrKDE4NykiPlJlY2VudHM8L2J1dHRvbj4KICA8YnV0dG9uIG9uY2xpY2s9ImsoMjYpIj5Qb3dlcjwvYnV0dG9uPgogIDxpbnB1dCBpZD0idGIiIHR5cGU9InRleHQiIHBsYWNlaG9sZGVyPSJUeXBlIHRleHQuLi4iIG9ua2V5ZG93bj0iaWYoZXZlbnQua2V5PT0nRW50ZXInKXN0KCkiLz4KICA8YnV0dG9uIG9uY2xpY2s9InN0KCkiPlNlbmQ8L2J1dHRvbj4KPC9kaXY+CjxpbWcgaWQ9InNjciIgc3JjPSJzY3JlZW4ucG5nIi8+CjxzY3JpcHQ+CmNvbnN0IGk9ZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ3NjcicpLHM9ZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ3N0Jyk7CnNldEludGVydmFsKCgpPT57aS5zcmM9J3NjcmVlbi5wbmc/dD0nK0RhdGUubm93KCk7fSwxMDAwKTsKbGV0IGQ9ZmFsc2Usc3gsc3k7CmkuYWRkRXZlbnRMaXN0ZW5lcignbW91c2Vkb3duJyxlPT57ZD1mYWxzZTtjb25zdCByPWkuZ2V0Qm91bmRpbmdDbGllbnRSZWN0KCk7c3g9TWF0aC5yb3VuZCgoZS5jbGllbnRYLXIubGVmdCkqMTA4MC9yLndpZHRoKTtzeTpNYXRoLnJvdW5kKChlLmNsaWVudFkgLXIudG9wKSoyNDAwL3IuaGVpZ2h0KTt9KTsKaS5hZGRFdmVudExpc3RlbmVyKCdtb3VzZW1vdmUnLGU9PntpZihlLmJ1dHRvbnMpZD10cnVlO30pOwppLmFkZEV2ZW50TGlzdGVuZXIoJ21vdXNldXAnLGFzeW5jIGU9PntjbG9zdCByPWkuZ2V0Qm91bmRpbmdDbGllbnRSZWN0KCk7Y29uc3QgeD1NYXRoLnJvdW5kKChlLmNsaWVudFgtci5sZWZ0KSoxMDgwL3Iud2lkdGgpO2NvbnN0IHk9TWF0aC5yb3VuZCgoZS5jbGllbnRZLXIudG9wKSoyNDAwL3IuaGVpZ2h0KTtpZihkKXthd2FpdCBmZXRjaCgnL3N3aXBlP3gxPScrc3grJyZ5MT0nK3N5KycmeDI9JyAreCsnJnkyPScreSkuY2F0Y2goKCk9Pnt9KTtzLnRleHRDb250ZW50PSdTd2lwZWQnO31lbHNle2F3YWl0IGZldGNoKCcvdGFwP3g9JyAreCsnJnk9JyAreSkuY2F0Y2goKCk9Pnt9KTtzLnRleHRDb250ZW50PSdUYXAgJyt4KycsfCcreTt9ZD1mYWxzZTt9KTsKYXN5bmMgZnVuY3Rpb24gayhjKXthd2FpdCBmZXRjaCgnL2tleT9rPScgK2MpLmNhdGNoKCgpPT57fSk7cy50ZXh0Q29udGVudD0nS2V5ICcrYzt9CmFzeW5jIGZ1bmN0aW9uIHN0KCl7Y29uc3Qgdj1kb2N1bWVudC5nZXRFbGVtZW50QnlJZCgndGInKS52YWx1ZTthd2FpdCBmZXRjaCgnL3RleHQ/dj0nK2VuY29kZVVSSUNvbXBvbmVudCh2KSkuY2F0Y2goKCk9Pnt9KTtkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgndGInKS52YWx1ZT0nJztzLnRleHRDb250ZW50PSdUeXBlZDogJyt2O30KPC9zY3JpcHQ+PC9ib2R5PjwvaHRtbD4=" | base64 -d > /tmp/stream/index.html
           echo "Files ready!"
 
-      - name: Boot Android 14 (Play Store) + Stream
+      - name: Boot Android 14 + Stream
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
@@ -45,30 +50,19 @@ jobs:
           arch: x86_64
           profile: pixel_6
           ram-size: 4096M
-          heap-size: 512M
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics
           disable-animations: true
           script: |
-            echo "✅ Android 14 with Play Store booted!"
             adb shell input keyevent 82
-
             while true; do
               adb exec-out screencap -p > /tmp/stream/screen.png 2>/dev/null
               sleep 1
             done &
-
             python3 /tmp/stream/server.py &
             sleep 2
-
             TAILSCALE_IP=$(tailscale ip -4)
             echo "================================"
-            echo "  Tunnel cmd (run on your PC):"
-            echo "  ssh -i C:/Users/DELL/.ssh/vishesh-github-mac -L 9100:localhost:9100 -N runner@${TAILSCALE_IP}"
-            echo "  Then open: http://localhost:9100"
+            echo "  Tunnel: ssh -i C:/Users/DELL/.ssh/vishesh-github-mac -L 9100:localhost:9100 -N runner@${TAILSCALE_IP}"
+            echo "  Browser: http://localhost:9100"
             echo "================================"
             sleep 20000
-
-      - name: Disable Sleep
-        run: |
-          sudo pmset -a sleep 0 displaysleep 0 disksleep 0
-          sudo caffeinate -dimsu &
