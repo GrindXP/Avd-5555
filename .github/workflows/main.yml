@@ -1,10 +1,10 @@
-name: Android 16 Remote Emulator
+name: Android 14 Remote Emulator
 on:
   workflow_dispatch:
 
 jobs:
   android-remote:
-    runs-on: macos-latest
+    runs-on: macos-13
     timeout-minutes: 350
 
     steps:
@@ -12,7 +12,7 @@ jobs:
         uses: tailscale/github-action@v3
         with:
           authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
-          hostname: github-android-runner
+          hostname: github-android
 
       - name: Enable SSH Access
         run: |
@@ -22,7 +22,6 @@ jobs:
           chmod 600 ~/.ssh/authorized_keys
           sudo launchctl unload /System/Library/LaunchDaemons/ssh.plist 2>/dev/null || true
           sudo launchctl load -w /System/Library/LaunchDaemons/ssh.plist
-          sleep 2
           echo "SSH ready!"
 
       - name: Setup Java
@@ -31,56 +30,45 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Prepare Stream Server Files
+      - name: Write Server Files
         run: |
           mkdir -p /tmp/stream
-
-          # server.py as base64 (no << YAML conflict)
           echo "aW1wb3J0IGh0dHAuc2VydmVyLCB1cmxsaWIucGFyc2UsIHN1YnByb2Nlc3MsIG9zLCBqc29uCgpjbGFzcyBIKGh0dHAuc2VydmVyLlNpbXBsZUhUVFBSZXF1ZXN0SGFuZGxlcik6CiAgICBkZWYgZG9fR0VUKHNlbGYpOgogICAgICAgIGlmIHNlbGYucGF0aC5zdGFydHN3aXRoKCcvdGFwJyk6CiAgICAgICAgICAgIHEgPSB1cmxsaWIucGFyc2UucGFyc2VfcXModXJsbGliLnBhcnNlLnVybHBhcnNlKHNlbGYucGF0aCkucXVlcnkpCiAgICAgICAgICAgIHggPSBxLmdldCgneCcsIFsnMCddKVswXQogICAgICAgICAgICB5ID0gcS5nZXQoJ3knLCBbJzAnXSlbMF0KICAgICAgICAgICAgciA9IHN1YnByb2Nlc3MucnVuKFsnYWRiJywgJ3NoZWxsJywgJ2lucHV0JywgJ3RhcCcsIHgsIHldLCBjYXB0dXJlX291dHB1dD1UcnVlLCB0ZXh0PVRydWUpCiAgICAgICAgICAgIHNlbGYuc2VuZF9yZXNwb25zZSgyMDApCiAgICAgICAgICAgIHNlbGYuc2VuZF9oZWFkZXIoJ0NvbnRlbnQtVHlwZScsICdhcHBsaWNhdGlvbi9qc29uJykKICAgICAgICAgICAgc2VsZi5lbmRfaGVhZGVycygpCiAgICAgICAgICAgIHNlbGYud2ZpbGUud3JpdGUoanNvbi5kdW1wcyh7J3gnOiB4LCAneSc6IHksICdvayc6IHIucmV0dXJuY29kZSA9PSAwfSkuZW5jb2RlKCkpCiAgICAgICAgZWxpZiBzZWxmLnBhdGguc3RhcnRzd2l0aCgnL3N3aXBlJyk6CiAgICAgICAgICAgIHEgPSB1cmxsaWIucGFyc2UucGFyc2VfcXModXJsbGliLnBhcnNlLnVybHBhcnNlKHNlbGYucGF0aCkucXVlcnkpCiAgICAgICAgICAgIHgxID0gcS5nZXQoJ3gxJywgWycwJ10pWzBdOyB5MSA9IHEuZ2V0KCd5MScsIFsnMCddKVswXQogICAgICAgICAgICB4MiA9IHEuZ2V0KCd4MicsIFsnMCddKVswXTsgeTIgPSBxLmdldCgneTInLCBbJzAnXSlbMF0KICAgICAgICAgICAgc3VicHJvY2Vzcy5ydW4oWydhZGInLCAnc2hlbGwnLCAnaW5wdXQnLCAnc3dpcGUnLCB4MSwgeTEsIHgyLCB5MiwgJzMwMCddLCBjYXB0dXJlX291dHB1dD1UcnVlKQogICAgICAgICAgICBzZWxmLnNlbmRfcmVzcG9uc2UoMjAwKTsgc2VsZi5lbmRfaGVhZGVycygpCiAgICAgICAgZWxpZiBzZWxmLnBhdGguc3RhcnRzd2l0aCgnL2tleScpOgogICAgICAgICAgICBxID0gdXJsbGliLnBhcnNlLnBhcnNlX3FzKHVybGxpYi5wYXJzZS51cmxwYXJzZShzZWxmLnBhdGgpLnF1ZXJ5KQogICAgICAgICAgICBrID0gcS5nZXQoJ2snLCBbJzMnXSlbMF0KICAgICAgICAgICAgc3VicHJvY2Vzcy5ydW4oWydhZGInLCAnc2hlbGwnLCAnaW5wdXQnLCAna2V5ZXZlbnQnLCBrXSwgY2FwdHVyZV9vdXRwdXQ9VHJ1ZSkKICAgICAgICAgICAgc2VsZi5zZW5kX3Jlc3BvbnNlKDIwMCk7IHNlbGYuZW5kX2hlYWRlcnMoKQogICAgICAgIGVsaWYgc2VsZi5wYXRoLnN0YXJ0c3dpdGgoJy90ZXh0Jyk6CiAgICAgICAgICAgIHEgPSB1cmxsaWIucGFyc2UucGFyc2VfcXModXJsbGliLnBhcnNlLnVybHBhcnNlKHNlbGYucGF0aCkucXVlcnkpCiAgICAgICAgICAgIHQgPSBxLmdldCgndicsIFsnJ10pWzBdLnJlcGxhY2UoJyAnLCAnJXMnKQogICAgICAgICAgICBzdWJwcm9jZXNzLnJ1bihbJ2FkYicsICdzaGVsbCcsICdpbnB1dCcsICd0ZXh0JywgdF0sIGNhcHR1cmVfb3V0cHV0PVRydWUpCiAgICAgICAgICAgIHNlbGYuc2VuZF9yZXNwb25zZSgyMDApOyBzZWxmLmVuZF9oZWFkZXJzKCkKICAgICAgICBlbHNlOgogICAgICAgICAgICBzdXBlcigpLmRvX0dFVCgpCiAgICBkZWYgbG9nX21lc3NhZ2Uoc2VsZiwgKmEpOiBwYXNzCgpvcy5jaGRpcignL3RtcC9zdHJlYW0nKQpodHRwLnNlcnZlci5IVFRQU2VydmVyKCgnJywgOTEwMCksIEgpLnNlcnZlX2ZvcmV2ZXIoKQo=" | base64 -d > /tmp/stream/server.py
-
-          # index.html as base64
-          echo "PCFET0NUWVBFIGh0bWw+CjxodG1sPgo8aGVhZD4KPHRpdGxlPkFuZHJvaWQgMTYgLSBSZW1vdGU8L3RpdGxlPgo8bWV0YSBuYW1lPSJ2aWV3cG9ydCIgY29udGVudD0id2lkdGg9ZGV2aWNlLXdpZHRoIj4KPHN0eWxlPgogIGJvZHl7bWFyZ2luOjA7YmFja2dyb3VuZDojMTExO2Rpc3BsYXk6ZmxleDtmbGV4LWRpcmVjdGlvbjpjb2x1bW47YWxpZ24taXRlbXM6Y2VudGVyO2NvbG9yOiNmZmY7Zm9udC1mYW1pbHk6bW9ub3NwYWNlfQogICNiYXJ7ZGlzcGxheTpmbGV4O2dhcDo4cHg7cGFkZGluZzo4cHg7YmFja2dyb3VuZDojMjIyO3dpZHRoOjEwMCU7Ym94LXNpemluZzpib3JkZXItYm94O2FsaWduLWl0ZW1zOmNlbnRlcjtmbGV4LXdyYXA6d3JhcH0KICBidXR0b257YmFja2dyb3VuZDojMzMzO2NvbG9yOiNmZmY7Ym9yZGVyOjFweCBzb2xpZCAjNTU1O3BhZGRpbmc6NnB4IDEycHg7Y3Vyc29yOnBvaW50ZXI7Ym9yZGVyLXJhZGl1czo0cHh9CiAgYnV0dG9uOmhvdmVye2JhY2tncm91bmQ6IzU1NX0KICAjc2Nye21heC1oZWlnaHQ6OTB2aDtjdXJzb3I6Y3Jvc3NoYWlyO2Rpc3BsYXk6YmxvY2s7Ym9yZGVyOjJweCBzb2xpZCAjMzMzO21hcmdpbjo4cHggYXV0b30KICAjc3RhdHVze2NvbG9yOiMwZjA7cGFkZGluZzo0cHggOHB4O2ZvbnQtc2l6ZToxMnB4fQogICN0ZXh0Ym94e2JhY2tncm91bmQ6IzMzMztjb2xvcjojZmZmO2JvcmRlcjoxcHggc29saWQgIzU1NTtwYWRkaW5nOjZweDtib3JkZXItcmFkaXVzOjRweDt3aWR0aDoxNjBweH0KPC9zdHlsZT4KPC9oZWFkPgo8Ym9keT4KPGRpdiBpZD0iYmFyIj4KICA8c3BhbiBpZD0ic3RhdHVzIj5MaXZlIEFuZHJvaWQgMTY8L3NwYW4+CiAgPGJ1dHRvbiBvbmNsaWNrPSJrZXkoMykiPkhvbWU8L2J1dHRvbj4KICA8YnV0dG9uIG9uY2xpY2s9ImtleSg0KSI+QmFjazwvYnV0dG9uPgogIDxidXR0b24gb25jbGljaz0ia2V5KDE4NykiPkFwcHM8L2J1dHRvbj4KICA8YnV0dG9uIG9uY2xpY2s9ImtleSgyNikiPlBvd2VyPC9idXR0b24+CiAgPGlucHV0IGlkPSJ0ZXh0Ym94IiB0eXBlPSJ0ZXh0IiBwbGFjZWhvbGRlcj0iVHlwZSB0ZXh0Li4uIiBvbmtleWRvd249ImlmKGV2ZW50LmtleT09J0VudGVyJylzZW5kVGV4dCgpIi8+CiAgPGJ1dHRvbiBvbmNsaWNrPSJzZW5kVGV4dCgpIj5TZW5kPC9idXR0b24+CjwvZGl2Pgo8aW1nIGlkPSJzY3IiIHNyYz0ic2NyZWVuLnBuZyIvPgo8c2NyaXB0Pgpjb25zdCBpbWc9ZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ3NjcicpOwpjb25zdCBzdD1kb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnc3RhdHVzJyk7CnNldEludGVydmFsKCgpPT57aW1nLnNyYz0nc2NyZWVuLnBuZz90PScrRGF0ZS5ub3coKTt9LDgwMCk7CmxldCBkcmFnZ2luZz1mYWxzZSxzdGFydFgsc3RhcnRZOwppbWcuYWRkRXZlbnRMaXN0ZW5lcignbW91c2Vkb3duJyxlPT57CiAgZHJhZ2dpbmc9ZmFsc2U7CiAgY29uc3Qgcj1pbWcuZ2V0Qm91bmRpbmdDbGllbnRSZWN0KCk7CiAgc3RhcnRYPU1hdGgucm91bmQoKGUuY2xpZW50WC1yLmxlZnQpKjEwODAvci53aWR0aCk7CiAgc3RhcnRZPU1hdGgucm91bmQoKGUuY2xpZW50WS1yLnRvcCkqMjQwMC9yLmhlaWdodCk7Cn0pOwppbWcuYWRkRXZlbnRMaXN0ZW5lcignbW91c2Vtb3ZlJyxlPT57aWYoZS5idXR0b25zPT09MSlkcmFnZ2luZz10cnVlO30pOwppbWcuYWRkRXZlbnRMaXN0ZW5lcignbW91c2V1cCcsYXN5bmMgZT0+ewogIGNvbnN0IHI9aW1nLmdldEJvdW5kaW5nQ2xpZW50UmVjdCgpOwogIGNvbnN0IHg9TWF0aC5yb3VuZCgoZS5jbGllbnRYLXIubGVmdCkqMTA4MC9yLndpZHRoKTsKICBjb25zdCB5PU1hdGgucm91bmQoKGUuY2xpZW50WS1yLnRvcCkqMjQwMC9yLmhlaWdodCk7CiAgaWYoZHJhZ2dpbmcpe2F3YWl0IGZldGNoKCcvc3dpcGU/eDE9JytzdGFydFgrJyZ5MT0nK3N0YXJ0WSsnJngyPScreCsnJnkyPScreSk7c3QudGV4dENvbnRlbnQ9J1N3aXBlZCc7fQogIGVsc2V7YXdhaXQgZmV0Y2goJy90YXA/eD0nK3grJyZ5PScreSk7c3QudGV4dENvbnRlbnQ9J1RhcHBlZCAnK3grJywnK3k7fQogIGRyYWdnaW5nPWZhbHNlOwp9KTsKYXN5bmMgZnVuY3Rpb24ga2V5KGspe2F3YWl0IGZldGNoKCcva2V5P2s9JytrKTtzdC50ZXh0Q29udGVudD0nS2V5OiAnK2s7fQphc3luYyBmdW5jdGlvbiBzZW5kVGV4dCgpewogIGNvbnN0IHY9ZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ3RleHRib3gnKS52YWx1ZTsKICBhd2FpdCBmZXRjaCgnL3RleHQ/dj0nK2VuY29kZVVSSUNvbXBvbmVudCh2KSk7CiAgZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ3RleHRib3gnKS52YWx1ZT0nJzsKICBzdC50ZXh0Q29udGVudD0nVHlwZWQ6ICcrdjsKfQo8L3NjcmlwdD4KPC9ib2R5Pgo8L2h0bWw+" | base64 -d > /tmp/stream/index.html
-
+          echo "PCFET0NUWVBFIGh0bWw+CjxodG1sPgo8aGVhZD4KPHRpdGxlPkFuZHJvaWQgMTQgLSBSZW1vdGU8L3RpdGxlPgo8bWV0YSBuYW1lPSJ2aWV3cG9ydCIgY29udGVudD0id2lkdGg9ZGV2aWNlLXdpZHRoIj4KPHN0eWxlPgogIGJvZHl7bWFyZ2luOjA7YmFja2dyb3VuZDojMTExO2Rpc3BsYXk6ZmxleDtmbGV4LWRpcmVjdGlvbjpjb2x1bW47YWxpZ24taXRlbXM6Y2VudGVyO2NvbG9yOiNmZmY7Zm9udC1mYW1pbHk6c2Fucy1zZXJpZn0KICAjYmFye2Rpc3BsYXk6ZmxleDtnYXA6NnB4O3BhZGRpbmc6OHB4O2JhY2tncm91bmQ6IzIyMjt3aWR0aDoxMDAlO2JveC1zaXppbmc6Ym9yZGVyLWJveDtmbGV4LXdyYXA6d3JhcDthbGlnbi1pdGVtczpjZW50ZXJ9CiAgYnV0dG9ue2JhY2tncm91bmQ6IzMzMztjb2xvcjojZmZmO2JvcmRlcjoxcHggc29saWQgIzU1NTtwYWRkaW5nOjZweCAxMnB4O2N1cnNvcjpwb2ludGVyO2JvcmRlci1yYWRpdXM6NHB4fQogIGJ1dHRvbjpob3ZlcntiYWNrZ3JvdW5kOiM0NDR9CiAgI3Njcnttax1oZWlnaHQ6OTB2aDtjdXJzb3I6Y3Jvc3NoYWlyO2Rpc3BsYXk6YmxvY2s7Ym9yZGVyOjJweCBzb2xpZCAjMzMzO21hcmdpbjo4cHggYXV0b30KICAjc3R7Y29sb3I6IzBmMDtmb250LXNpemU6MTJweDtwYWRkaW5nOjAgOHB4fQogICN0YntpbnB1dH1iYWNrZ3JvdW5kOiMzMzM7Y29sb3I6I2ZmZjtib3JkZXI6MXB4IHNvbGlkICM1NTU7cGFkZGluZzo1cHg7Ym9yZGVyLXJhZGl1czo0cHg7d2lkdGg6MTUwcHh9Cjwvc3R5bGU+CjwvaGVhZD4KPGJvZHk+CjxkaXYgaWQ9ImJhciI+CiAgPHNwYW4gaWQ9InN0Ij5MaXZlIEFuZHJvaWQgMTQ8L3NwYW4+CiAgPGJ1dHRvbiBvbmNsaWNrPSJrKDMpIj5Ib21lPC9idXR0b24+CiAgPGJ1dHRvbiBvbmNsaWNrPSJrKDQpIj5CYWNrPC9idXR0b24+CiAgPGJ1dHRvbiBvbmNsaWNrPSJrKDE4NykiPlJlY2VudHM8L2J1dHRvbj4KICA8YnV0dG9uIG9uY2xpY2s9ImsoMjYpIj5Qb3dlcjwvYnV0dG9uPgogIDxpbnB1dCBpZD0idGIiIHR5cGU9InRleHQiIHBsYWNlaG9sZGVyPSJUeXBlIHRleHQuLi4iIG9ua2V5ZG93bj0iaWYoZXZlbnQua2V5PT0nRW50ZXInKXN0KCkiLz4KICA8YnV0dG9uIG9uY2xpY2s9InN0KCkiPlNlbmQ8L2J1dHRvbj4KPC9kaXY+CjxpbWcgaWQ9InNjciIgc3JjPSJzY3JlZW4ucG5nIi8+CjxzY3JpcHQ+CmNvbnN0IGk9ZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ3NjcicpLHM9ZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ3N0Jyk7CnNldEludGVydmFsKCgpPT57aS5zcmM9J3NjcmVlbi5wbmc/dD0nK0RhdGUubm93KCk7fSwxMDAwKTsKbGV0IGQ9ZmFsc2Usc3gsc3k7CmkuYWRkRXZlbnRMaXN0ZW5lcignbW91c2Vkb3duJyxlPT57ZD1mYWxzZTtjb25zdCByPWkuZ2V0Qm91bmRpbmdDbGllbnRSZWN0KCk7c3g9TWF0aC5yb3VuZCgoZS5jbGllbnRYLXIubGVmdCkqMTA4MC9yLndpZHRoKTtzeTpNYXRoLnJvdW5kKChlLmNsaWVudFkgLXIudG9wKSoyNDAwL3IuaGVpZ2h0KTt9KTsKaS5hZGRFdmVudExpc3RlbmVyKCdtb3VzZW1vdmUnLGU9PntpZihlLmJ1dHRvbnMpZD10cnVlO30pOwppLmFkZEV2ZW50TGlzdGVuZXIoJ21vdXNldXAnLGFzeW5jIGU9PntjbG9zdCByPWkuZ2V0Qm91bmRpbmdDbGllbnRSZWN0KCk7Y29uc3QgeD1NYXRoLnJvdW5kKChlLmNsaWVudFgtci5sZWZ0KSoxMDgwL3Iud2lkdGgpO2NvbnN0IHk9TWF0aC5yb3VuZCgoZS5jbGllbnRZLXIudG9wKSoyNDAwL3IuaGVpZ2h0KTtpZihkKXthd2FpdCBmZXRjaCgnL3N3aXBlP3gxPScrc3grJyZ5MT0nK3N5KycmeDI9JyAreCsnJnkyPScreSkuY2F0Y2goKCk9Pnt9KTtzLnRleHRDb250ZW50PSdTd2lwZWQnO31lbHNle2F3YWl0IGZldGNoKCcvdGFwP3g9JyAreCsnJnk9JyAreSkuY2F0Y2goKCk9Pnt9KTtzLnRleHRDb250ZW50PSdUYXAgJyt4KycsfCcreTt9ZD1mYWxzZTt9KTsKYXN5bmMgZnVuY3Rpb24gayhjKXthd2FpdCBmZXRjaCgnL2tleT9rPScgK2MpLmNhdGNoKCgpPT57fSk7cy50ZXh0Q29udGVudD0nS2V5ICcrYzt9CmFzeW5jIGZ1bmN0aW9uIHN0KCl7Y29uc3Qgdj1kb2N1bWVudC5nZXRFbGVtZW50QnlJZCgndGInKS52YWx1ZTthd2FpdCBmZXRjaCgnL3RleHQ/dj0nK2VuY29kZVVSSUNvbXBvbmVudCh2KSkuY2F0Y2goKCk9Pnt9KTtkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgndGInKS52YWx1ZT0nJztzLnRleHRDb250ZW50PSdUeXBlZDogJyt2O30KPC9zY3JpcHQ+PC9ib2R5PjwvaHRtbD4=" | base64 -d > /tmp/stream/index.html
           echo "Files ready!"
 
-      - name: Start Android 16 Emulator + Stream
+      - name: Boot Android 14 (Play Store) + Stream
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 36
-          target: google_apis
-          arch: arm64-v8a
+          api-level: 34
+          target: google_apis_playstore
+          arch: x86_64
           profile: pixel_6
           ram-size: 4096M
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          heap-size: 512M
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics
           disable-animations: true
           script: |
-            echo "Emulator booted!"
+            echo "✅ Android 14 with Play Store booted!"
             adb shell input keyevent 82
 
-            # Start screenshot loop
             while true; do
               adb exec-out screencap -p > /tmp/stream/screen.png 2>/dev/null
-              sleep 0.8
+              sleep 1
             done &
 
-            # Start Python server
             python3 /tmp/stream/server.py &
-            sleep 3
-            echo "Stream ready on port 9100"
+            sleep 2
 
-            # Keep alive
+            TAILSCALE_IP=$(tailscale ip -4)
+            echo "================================"
+            echo "  Tunnel cmd (run on your PC):"
+            echo "  ssh -i C:/Users/DELL/.ssh/vishesh-github-mac -L 9100:localhost:9100 -N runner@${TAILSCALE_IP}"
+            echo "  Then open: http://localhost:9100"
+            echo "================================"
             sleep 20000
 
       - name: Disable Sleep
         run: |
           sudo pmset -a sleep 0 displaysleep 0 disksleep 0
           sudo caffeinate -dimsu &
-
-      - name: Print Connection Info
-        run: |
-          TAILSCALE_IP=$(tailscale ip -4)
-          echo "================================"
-          echo "  SSH: ssh runner@${TAILSCALE_IP}"
-          echo "  Tunnel: ssh -i C:/Users/DELL/.ssh/sshgithubmac -L 9100:localhost:9100 -N runner@${TAILSCALE_IP}"
-          echo "  Browser: http://localhost:9100"
-          echo "================================"
